@@ -1,0 +1,6 @@
+{
+  "name": "MCP Nexus",
+  "description": "Enterprise AI and MCP platform that transforms existing enterprise application APIs into governed, application-specific MCP servers.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

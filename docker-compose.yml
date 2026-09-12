@@ -1,0 +1,18 @@
+services:
+  mcpnexus:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: mcpnexus:latest
+    container_name: mcpnexus
+    ports:
+      - "3011:3011"         # expose server port
+    environment:
+      - NODE_ENV=production
+      - PORT=3011
+    restart: unless-stopped
+    # uncomment the following line during development if you want
+    # to mount the local source tree and pick up changes without
+    # rebuilding the image (requires a full npm install inside container)
+    # volumes:
+    #   - .:/app

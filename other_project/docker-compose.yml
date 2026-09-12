@@ -1,0 +1,19 @@
+version: "3.9"
+
+services:
+  equityflow:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: equityflow-terminal:latest
+    container_name: equityflow-terminal
+    ports:
+      - "3010:3010"         # expose server port
+    environment:
+      - NODE_ENV=production
+    restart: unless-stopped
+    # uncomment the following line during development if you want
+    # to mount the local source tree and pick up changes without
+    # rebuilding the image (requires a full npm install inside container)
+    # volumes:
+    #   - .:/app
