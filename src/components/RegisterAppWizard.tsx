@@ -79,6 +79,7 @@ export const RegisterAppWizard: React.FC<RegisterAppWizardProps> = ({
   // Form states
   const [appName, setAppName] = useState('Customer Transaction Portal');
   const [appCode, setAppCode] = useState('CTP-CORE');
+  const [carId, setCarId] = useState('');
   const [owner, setOwner] = useState('');
   const [ownerEmail, setOwnerEmail] = useState('');
   const [supportDL, setSupportDL] = useState('');
@@ -165,6 +166,7 @@ export const RegisterAppWizard: React.FC<RegisterAppWizardProps> = ({
       id: `app-${Date.now()}`,
       name: appName,
       appCode: appCode || 'NEW-APP',
+      carId,
       description: appDescription,
       owner: owner,
       ownerEmail: ownerEmail,
@@ -361,6 +363,28 @@ export const RegisterAppWizard: React.FC<RegisterAppWizardProps> = ({
                 </div>
 
                 <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">CAR ID *</label>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    value={carId}
+                    onChange={(e) => setCarId(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                    className={`w-full px-3.5 py-2 rounded-lg border text-xs font-mono font-semibold focus:outline-hidden focus:ring-2 ${
+                      carId && carId.length !== 10
+                        ? 'border-red-300 focus:ring-red-500'
+                        : 'border-slate-200 focus:ring-indigo-500'
+                    }`}
+                    placeholder="e.g. 1004582931"
+                    maxLength={10}
+                  />
+                  <p className={`text-[11px] mt-1 ${carId && carId.length !== 10 ? 'text-red-600' : 'text-slate-500'}`}>
+                    {carId && carId.length !== 10
+                      ? 'CAR ID must be exactly 10 digits.'
+                      : "Organization's 10-digit Application CAR ID."}
+                  </p>
+                </div>
+
+                <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">Application Owner *</label>
                   <PersonTypeahead
                     value={owner}
@@ -383,7 +407,7 @@ export const RegisterAppWizard: React.FC<RegisterAppWizardProps> = ({
                   />
                 </div>
 
-                <div className="sm:col-span-2">
+                <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">Application Support DL *</label>
                   <input
                     type="email"

@@ -28,6 +28,7 @@ const fallbackApp: EnterpriseApplication = {
   id: 'app-cust-tx',
   name: 'Customer Transaction Portal',
   appCode: 'CTP-PROD',
+  carId: '1004582931',
   description: 'Enterprise API for retrieving customer profile data and retail card transactions.',
   department: 'Digital Banking',
   owner: 'Sarah Jenkins',

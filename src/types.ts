@@ -165,6 +165,7 @@ export interface EnterpriseApplication {
   id: string;
   name: string;
   appCode: string;
+  carId: string;
   description: string;
   owner: string;
   ownerEmail: string;

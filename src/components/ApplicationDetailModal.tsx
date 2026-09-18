@@ -141,6 +141,12 @@ export const ApplicationDetailModal: React.FC<ApplicationDetailModalProps> = ({
                 <span className="px-2.5 py-0.5 rounded-md bg-blue-50 text-blue-700 border border-blue-200 font-mono text-xs font-semibold">
                   {application.appCode}
                 </span>
+                <span
+                  className="px-2.5 py-0.5 rounded-md bg-slate-50 text-slate-700 border border-slate-200 font-mono text-xs font-semibold"
+                  title="Organization CAR ID"
+                >
+                  CAR ID: {application.carId}
+                </span>
                 <span className={`px-2 py-0.5 rounded-full text-xs font-semibold border ${STATUS_BADGE_STYLE[application.status]}`}>
                   {application.status}
                 </span>
@@ -672,7 +678,13 @@ export const ApplicationDetailModal: React.FC<ApplicationDetailModalProps> = ({
                 )}
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+                <div className="p-4 rounded-xl border border-slate-200 bg-white">
+                  <span className="text-[11px] text-slate-400 font-bold uppercase">CAR ID</span>
+                  <div className="text-sm font-bold text-slate-900 mt-1 font-mono">{application.carId}</div>
+                  <div className="text-xs text-slate-500">Organization Application CAR ID</div>
+                </div>
+
                 <div className="p-4 rounded-xl border border-slate-200 bg-white">
                   <span className="text-[11px] text-slate-400 font-bold uppercase">Application Owner</span>
                   <div className="text-sm font-bold text-slate-900 mt-1">{application.owner}</div>
