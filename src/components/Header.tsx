@@ -231,8 +231,8 @@ export const Header: React.FC<HeaderProps> = ({
 
         <div className="h-5 w-px bg-slate-200 mx-1 hidden sm:block" />
 
-        {/* Theme Switcher */}
-        <ThemeSwitcherControl onOpenFullModal={onOpenThemeModal} />
+        {/* Theme Switcher — hidden for now */}
+        {false && <ThemeSwitcherControl onOpenFullModal={onOpenThemeModal} />}
 
         {/* Notification Bell */}
         <button

@@ -163,6 +163,8 @@ export interface DirectoryPerson {
 
 export interface EnterpriseApplication {
   id: string;
+  // Stable external identifier from the API (e.g. app-ctp-core-k3x9qa); `id` is the internal database id.
+  publicId?: string;
   name: string;
   appCode: string;
   carId: string;
@@ -211,6 +213,20 @@ export interface McpServer {
   lastDeployed: string;
   healthStatus: 'Healthy' | 'Degraded' | 'Offline';
   isPublishedToCatalog: boolean;
+  // Application summary embedded by GET /api/mcp-servers (see API.md section 3).
+  // Absent for the static fixtures, which are matched to applications by mcpServerId instead.
+  application?: McpServerApplicationSummary;
+}
+
+export interface McpServerApplicationSummary {
+  id: string;
+  publicId?: string;
+  name: string;
+  appCode: string;
+  owner: string;
+  ownerEmail: string;
+  department: string;
+  isAiReady: boolean;
 }
 
 export interface AccessRequest {

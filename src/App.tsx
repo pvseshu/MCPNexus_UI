@@ -2,6 +2,8 @@ import React, { useState, useRef, useEffect, Suspense, lazy } from 'react';
 import { CheckCircle2, X } from 'lucide-react';
 import { loadAppData } from './data/dataProvider';
 import { isDemoMode } from './utils/demoMode';
+import { fetchNavigationCounts, NavigationCounts } from './api/navigation';
+import { fetchMcpServerDetail, setCatalogVisibility, updateMcpServer, McpServerPatch } from './api/mcpServers';
 import {
   NavSection,
   Application,
@@ -83,6 +85,17 @@ export default function App() {
     };
   }, []);
 
+  // Menu badge counts from GET /api/navigation/counts. Never called on /demo, and any
+  // key the server doesn't return (or a failed call) falls back to counting local data.
+  const [navCounts, setNavCounts] = useState<NavigationCounts>({});
+  const refreshNavCounts = () => {
+    if (isDemoMode()) return;
+    fetchNavigationCounts()
+      .then(setNavCounts)
+      .catch((err) => console.warn('Could not load navigation counts; using local counts.', err));
+  };
+  useEffect(refreshNavCounts, []);
+
   // Modal & Detail States
   const [selectedAppForDetail, setSelectedAppForDetail] = useState<Application | null>(null);
   const [showRegisterWizard, setShowRegisterWizard] = useState(false);
@@ -121,36 +134,99 @@ export default function App() {
     setAuditEvents((prev) => [newEvent, ...prev]);
   };
 
-  const handleUpdateApplication = (updated: Application) => {
-    setApplications((prev) => prev.map((app) => (app.id === updated.id ? updated : app)));
-    setSelectedAppForDetail(updated);
-    logAuditEvent(
-      'CONFIG_UPDATE',
-      updated.name,
-      `Updated Swagger/OpenAPI spec URL(s) and authentication configuration.`
-    );
+  // Servers loaded from the API can be updated through PATCH /api/mcp-servers/{id};
+  // demo/static ones only change local state.
+  const isApiServer = (serverId: string) =>
+    !isDemoMode() && !!mcpServers.find((s) => s.id === serverId)?.application;
+
+  // Replaces the local copy of the application/server with what the API returned.
+  const applyServerUpdate = (application: Application, server: McpServer) => {
+    setApplications((prev) => prev.map((a) => (a.id === application.id ? application : a)));
+    setMcpServers((prev) => prev.map((s) => (s.id === server.id ? server : s)));
+    setSelectedAppForDetail(application);
+  };
+
+  // Returns false when saving failed, so the popup can stay in edit mode.
+  const handleUpdateApplication = async (updated: Application): Promise<boolean> => {
+    const current = selectedAppForDetail;
+
+    if (!current || !isApiServer(updated.mcpServerId)) {
+      setApplications((prev) => prev.map((app) => (app.id === updated.id ? updated : app)));
+      setMcpServers((prev) =>
+        prev.map((s) => (s.id === updated.mcpServerId ? { ...s, applicationName: updated.name, owner: updated.owner } : s))
+      );
+      setSelectedAppForDetail(updated);
+      logAuditEvent('CONFIG_UPDATE', updated.name, `Updated Swagger/OpenAPI spec URL(s) and authentication configuration.`);
+      return true;
+    }
+
+    const changed = (a: unknown, b: unknown) => JSON.stringify(a) !== JSON.stringify(b);
+    const patch: McpServerPatch = {};
+    const sections: string[] = [];
+    const detailFields = ['name', 'description', 'owner', 'ownerEmail', 'supportDL', 'department'] as const;
+    const changedDetails = detailFields.filter((f) => updated[f] !== current[f]);
+    if (changedDetails.length > 0) {
+      for (const f of changedDetails) patch[f] = updated[f];
+      sections.push('application details');
+    }
+    if (changed(updated.swaggerUrls, current.swaggerUrls) || changed(updated.authConfig, current.authConfig)) {
+      patch.swaggerUrls = updated.swaggerUrls;
+      patch.authConfig = updated.authConfig;
+      sections.push('OpenAPI spec and authentication');
+    }
+    if (changed(updated.aiContext, current.aiContext)) {
+      patch.aiContext = updated.aiContext;
+      sections.push('AI context');
+    }
+    if (changed(updated.aiSummaryConfig, current.aiSummaryConfig) && updated.aiSummaryConfig) {
+      patch.aiSummaryConfig = updated.aiSummaryConfig;
+      sections.push('AI summary instructions');
+    }
+    if (sections.length === 0) return true;
+
+    try {
+      const result = await updateMcpServer(updated.mcpServerId, patch, current.apis);
+      applyServerUpdate(result.application, result.server);
+      logAuditEvent('CONFIG_UPDATE', updated.name, `Updated ${sections.join(', ')}.`);
+      return true;
+    } catch (err) {
+      showGlobalToast('Save Failed', err instanceof Error ? err.message : `Could not save changes to ${updated.name}.`);
+      return false;
+    }
   };
 
   // Immediate app-level kill switch: stopping an app also stops its generated MCP
   // server, so every tool call against it is rejected until it's reactivated here.
-  const handleToggleAppActive = (app: Application) => {
+  const handleToggleAppActive = async (app: Application) => {
     const nextStatus: Application['status'] = app.status === 'Active' ? 'Disabled' : 'Active';
-    setApplications((prev) => prev.map((a) => (a.id === app.id ? { ...a, status: nextStatus } : a)));
-    setMcpServers((prev) =>
-      prev.map((s) =>
-        s.id === app.mcpServerId
-          ? {
-              ...s,
-              status: nextStatus === 'Active' ? 'Active' : 'Disabled',
-              // healthStatus reflects live reachability, not the admin on/off switch —
-              // but a stopped server can't be "Healthy", so force it Offline while
-              // disabled and restore Healthy on reactivation.
-              healthStatus: nextStatus === 'Active' ? 'Healthy' : 'Offline',
-            }
-          : s
-      )
-    );
-    setSelectedAppForDetail((prev) => (prev && prev.id === app.id ? { ...prev, status: nextStatus } : prev));
+
+    if (isApiServer(app.mcpServerId)) {
+      try {
+        const result = await updateMcpServer(app.mcpServerId, { status: nextStatus }, app.apis);
+        applyServerUpdate(result.application, result.server);
+      } catch (err) {
+        showGlobalToast('Status Change Failed', err instanceof Error ? err.message : `Could not change the status of ${app.name}.`);
+        return;
+      }
+    } else {
+      setApplications((prev) => prev.map((a) => (a.id === app.id ? { ...a, status: nextStatus } : a)));
+      setMcpServers((prev) =>
+        prev.map((s) =>
+          s.id === app.mcpServerId
+            ? {
+                ...s,
+                status: nextStatus === 'Active' ? 'Active' : 'Disabled',
+                // healthStatus reflects live reachability, not the admin on/off switch —
+                // but a stopped server can't be "Healthy", so force it Offline while
+                // disabled and restore Healthy on reactivation.
+                healthStatus: nextStatus === 'Active' ? 'Healthy' : 'Offline',
+              }
+            : s
+        )
+      );
+      setSelectedAppForDetail((prev) => (prev && prev.id === app.id ? { ...prev, status: nextStatus } : prev));
+    }
+
     logAuditEvent(
       'APP_STATUS_CHANGE',
       app.name,
@@ -166,18 +242,51 @@ export default function App() {
     );
   };
 
-  const handleToggleCatalogVisibility = (serverId: string) => {
-    setMcpServers((prev) =>
-      prev.map((s) => (s.id === serverId ? { ...s, isPublishedToCatalog: !s.isPublishedToCatalog } : s))
-    );
+  // Sends the wanted value (not a "flip") to PUT /api/mcp-servers/{id}/catalog-visibility and
+  // applies what the server returns; on failure the card keeps its old state. On /demo it
+  // only changes local state.
+  const handleToggleCatalogVisibility = async (serverId: string) => {
     const server = mcpServers.find((s) => s.id === serverId);
-    if (server) {
-      logAuditEvent(
-        'CONFIG_UPDATED',
-        server.name,
-        server.isPublishedToCatalog
-          ? `Removed ${server.name} from the MCP Catalog (made private).`
-          : `Published ${server.name} to the MCP Catalog for discovery and access requests.`
+    if (!server) return;
+    const wanted = !server.isPublishedToCatalog;
+
+    let published = wanted;
+    if (!isDemoMode()) {
+      try {
+        published = (await setCatalogVisibility(serverId, wanted)).isPublishedToCatalog;
+      } catch (err) {
+        showGlobalToast(
+          'Catalog Update Failed',
+          err instanceof Error ? err.message : `Could not update catalog visibility for ${server.name}.`
+        );
+        return;
+      }
+    }
+
+    setMcpServers((prev) => prev.map((s) => (s.id === serverId ? { ...s, isPublishedToCatalog: published } : s)));
+    logAuditEvent(
+      'CONFIG_UPDATED',
+      server.name,
+      published
+        ? `Published ${server.name} to the MCP Catalog for discovery and access requests.`
+        : `Removed ${server.name} from the MCP Catalog (made private).`
+    );
+  };
+
+  // Servers loaded from the API (they carry an `application` summary) fetch their full
+  // detail on click (GET /api/mcp-servers/{id}); demo/static servers match a local application.
+  const handleOpenServerDetails = async (server: McpServer) => {
+    if (isDemoMode() || !server.application) {
+      const app = applications.find((a) => a.mcpServerId === server.id);
+      if (app) setSelectedAppForDetail(app);
+      return;
+    }
+    try {
+      setSelectedAppForDetail(await fetchMcpServerDetail(server.id));
+    } catch (err) {
+      showGlobalToast(
+        'Could Not Load MCP Server',
+        err instanceof Error ? err.message : `Could not load details for ${server.name}.`
       );
     }
   };
@@ -188,6 +297,7 @@ export default function App() {
     setMcpServers((prev) => [generatedServer, ...prev]);
     setMcpTools((prev) => [...generatedTools, ...prev]);
     setShowRegisterWizard(false);
+    refreshNavCounts();
 
     logAuditEvent(
       'REGISTER_APPLICATION',
@@ -309,10 +419,10 @@ export default function App() {
           setToolsServerFilter(undefined);
           setCurrentSection(sec);
         }}
-        pendingAccessRequestsCount={pendingRequestsCount}
+        pendingAccessRequestsCount={navCounts.pendingAccessRequests ?? pendingRequestsCount}
         pendingRequestsCount={pendingRequestsCount}
-        mcpServersCount={mcpServers.length}
-        mcpToolsCount={mcpTools.length}
+        mcpServersCount={navCounts.mcpServers ?? mcpServers.length}
+        mcpToolsCount={navCounts.mcpTools ?? mcpTools.length}
       />
 
       {/* Main Content Area */}
@@ -376,10 +486,7 @@ export default function App() {
               applications={applications}
               onNavigateToTools={(serverId) => handleNavigateToToolsWithFilter(serverId)}
               onToggleCatalogVisibility={handleToggleCatalogVisibility}
-              onOpenDetails={(server) => {
-                const app = applications.find((a) => a.mcpServerId === server.id);
-                if (app) setSelectedAppForDetail(app);
-              }}
+              onOpenDetails={handleOpenServerDetails}
               onOpenRegisterWizard={() => setShowRegisterWizard(true)}
             />
           )}

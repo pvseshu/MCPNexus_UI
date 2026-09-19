@@ -74,6 +74,9 @@ export interface GenerateMcpRequest {
       keyUseCases: string[];
       commonWorkflows: string[];
       importantTerminology: { term: string; definition: string }[];
+      intendedConsumers: string[];
+      usageGuidelines: string;
+      restrictions: string;
       aiGuidance: string;
     };
   };

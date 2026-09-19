@@ -12,6 +12,7 @@ import {
   SlidersHorizontal,
   Plus,
   Sparkles,
+  Loader2,
 } from 'lucide-react';
 import { McpServer, EnterpriseApplication } from '../types';
 
@@ -19,8 +20,8 @@ interface McpServersViewProps {
   servers: McpServer[];
   applications: EnterpriseApplication[];
   onNavigateToTools: (serverId?: string) => void;
-  onToggleCatalogVisibility: (serverId: string) => void;
-  onOpenDetails: (server: McpServer) => void;
+  onToggleCatalogVisibility: (serverId: string) => void | Promise<void>;
+  onOpenDetails: (server: McpServer) => void | Promise<void>;
   onOpenRegisterWizard: () => void;
 }
 
@@ -35,10 +36,43 @@ export const McpServersView: React.FC<McpServersViewProps> = ({
   const [copied, setCopied] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [departmentFilter, setDepartmentFilter] = useState('ALL');
+  // Server whose detail popup is still loading.
+  const [openingId, setOpeningId] = useState<string | null>(null);
 
-  const getApp = (server: McpServer) => applications.find((a) => a.mcpServerId === server.id);
+  const handleOpenDetails = async (server: McpServer) => {
+    if (openingId) return;
+    setOpeningId(server.id);
+    try {
+      await onOpenDetails(server);
+    } finally {
+      setOpeningId(null);
+    }
+  };
 
-  const departments = ['ALL', ...Array.from(new Set(applications.map((a) => a.department)))];
+  // Servers whose catalog visibility change is still being saved.
+  const [savingCatalogIds, setSavingCatalogIds] = useState<Set<string>>(new Set());
+
+  const handleCatalogToggle = async (serverId: string) => {
+    setSavingCatalogIds((prev) => new Set(prev).add(serverId));
+    try {
+      await onToggleCatalogVisibility(serverId);
+    } finally {
+      setSavingCatalogIds((prev) => {
+        const next = new Set(prev);
+        next.delete(serverId);
+        return next;
+      });
+    }
+  };
+
+  // Live servers carry their own application summary; static fixtures are matched by mcpServerId.
+  const getApp = (server: McpServer) =>
+    server.application ?? applications.find((a) => a.mcpServerId === server.id);
+
+  const departments = [
+    'ALL',
+    ...Array.from(new Set(servers.map((s) => getApp(s)?.department).filter((d): d is string => !!d))),
+  ];
 
   const filteredServers = servers.filter((server) => {
     const app = getApp(server);
@@ -158,8 +192,10 @@ export const McpServersView: React.FC<McpServersViewProps> = ({
           return (
             <div
               key={server.id}
-              onClick={() => onOpenDetails(server)}
-              className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs hover:shadow-md hover:border-indigo-300 transition-all flex flex-col justify-between group cursor-pointer"
+              onClick={() => handleOpenDetails(server)}
+              className={`bg-white border border-slate-200 rounded-2xl p-5 shadow-xs hover:shadow-md hover:border-indigo-300 transition-all flex flex-col justify-between group cursor-pointer ${
+                openingId === server.id ? 'opacity-60 cursor-wait' : ''
+              }`}
             >
               <div className="space-y-3">
                 <div className="flex items-start justify-between">
@@ -226,24 +262,31 @@ export const McpServersView: React.FC<McpServersViewProps> = ({
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
-                    onToggleCatalogVisibility(server.id);
+                    handleCatalogToggle(server.id);
                   }}
+                  disabled={savingCatalogIds.has(server.id)}
                   title={
                     server.isPublishedToCatalog
                       ? 'Visible in MCP Catalog — click to make private'
                       : 'Not in MCP Catalog — click to publish for discovery/access requests'
                   }
-                  className={`w-full flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold transition-colors cursor-pointer ${
+                  className={`w-full flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold transition-colors cursor-pointer disabled:opacity-60 disabled:cursor-wait ${
                     server.isPublishedToCatalog
                       ? 'bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100'
                       : 'bg-slate-100 text-slate-600 border border-slate-200 hover:bg-slate-200'
                   }`}
                 >
                   <span className="flex items-center gap-1.5">
-                    {server.isPublishedToCatalog ? <Globe className="w-3 h-3" /> : <Lock className="w-3 h-3" />}
+                    {savingCatalogIds.has(server.id) ? (
+                      <Loader2 className="w-3 h-3 animate-spin" />
+                    ) : server.isPublishedToCatalog ? (
+                      <Globe className="w-3 h-3" />
+                    ) : (
+                      <Lock className="w-3 h-3" />
+                    )}
                     <span>{server.isPublishedToCatalog ? 'Listed in MCP Catalog' : 'Not enabled for Catalog (Private)'}</span>
                   </span>
-                  <span className="underline decoration-dotted">Change</span>
+                  <span className="underline decoration-dotted">{savingCatalogIds.has(server.id) ? 'Saving…' : 'Change'}</span>
                 </button>
 
                 <div className="pt-2 border-t border-slate-100 space-y-1.5 text-xs text-slate-600">

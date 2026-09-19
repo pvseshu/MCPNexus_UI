@@ -21,17 +21,24 @@ import {
   Power,
   AlertTriangle,
 } from 'lucide-react';
-import { EnterpriseApplication, ApiAuthConfig, ApplicationAiSummaryConfig } from '../types';
+import { EnterpriseApplication, ApiAuthConfig, ApplicationAiSummaryConfig, ApplicationAiContext } from '../types';
 import { ApiAuthConfigEditor, SwaggerUrlListEditor } from './ApiAuthConfigEditor';
+import { PersonTypeahead } from './PersonTypeahead';
 
 interface ApplicationDetailModalProps {
   application: EnterpriseApplication | null;
   onClose: () => void;
   onViewMcpServer: (serverId: string) => void;
   onConfigureTool: (toolName: string) => void;
-  onUpdateApplication?: (updated: EnterpriseApplication) => void;
-  onToggleActive?: (application: EnterpriseApplication) => void;
+  // Resolves to false when saving failed, so the editor stays open with the user's edits.
+  onUpdateApplication?: (updated: EnterpriseApplication) => void | boolean | Promise<void | boolean>;
+  onToggleActive?: (application: EnterpriseApplication) => void | Promise<void>;
 }
+
+// The AI Summary is project-level, so restricting it to specific tools is hidden for now.
+// Flip to true to bring back the tool picker (and the "Referenced APIs / Tools" list);
+// existing `includedApiIds` values are kept either way.
+const SHOW_SUMMARY_TOOL_PICKER = false;
 
 const STATUS_BADGE_STYLE: Record<EnterpriseApplication['status'], string> = {
   Active: 'bg-emerald-50 text-emerald-700 border-emerald-200',
@@ -67,6 +74,33 @@ export const ApplicationDetailModal: React.FC<ApplicationDetailModalProps> = ({
     includedApiIds: [],
     sampleOutput: '',
   };
+  // AI context is edited as plain text (one item per line) and parsed back on save.
+  const aiContextToDraft = (ctx: ApplicationAiContext) => ({
+    businessPurpose: ctx.businessPurpose,
+    businessDomain: ctx.businessDomain,
+    keyUseCases: ctx.keyUseCases.join('\n'),
+    commonWorkflows: ctx.commonWorkflows.join('\n'),
+    importantTerminology: ctx.importantTerminology.map((t) => `${t.term}: ${t.definition}`).join('\n'),
+    intendedConsumers: ctx.intendedConsumers.join('\n'),
+    usageGuidelines: ctx.usageGuidelines,
+    restrictions: ctx.restrictions,
+    aiGuidance: ctx.aiGuidance,
+  });
+  // Application details (name, description, owner, support DL, department). App code and CAR ID stay read-only.
+  const detailsToDraft = (app: EnterpriseApplication) => ({
+    name: app.name,
+    description: app.description,
+    owner: app.owner,
+    ownerEmail: app.ownerEmail,
+    supportDL: app.supportDL,
+    department: app.department,
+  });
+  const [isEditingDetails, setIsEditingDetails] = useState(false);
+  const [draftDetails, setDraftDetails] = useState(() => (application ? detailsToDraft(application) : null));
+  const [isEditingAiContext, setIsEditingAiContext] = useState(false);
+  const [draftAiContext, setDraftAiContext] = useState(() =>
+    application ? aiContextToDraft(application.aiContext) : null
+  );
   const [isEditingAiSummary, setIsEditingAiSummary] = useState(false);
   const [draftAiSummary, setDraftAiSummary] = useState<ApplicationAiSummaryConfig>(
     application?.aiSummaryConfig || emptyAiSummaryConfig
@@ -80,19 +114,23 @@ export const ApplicationDetailModal: React.FC<ApplicationDetailModalProps> = ({
       setConfirmingStop(false);
       setDraftAiSummary(application.aiSummaryConfig || emptyAiSummaryConfig);
       setIsEditingAiSummary(false);
+      setDraftAiContext(aiContextToDraft(application.aiContext));
+      setIsEditingAiContext(false);
+      setDraftDetails(detailsToDraft(application));
+      setIsEditingDetails(false);
     }
   }, [application]);
 
   if (!application) return null;
 
-  const handleSaveSpecs = () => {
+  const handleSaveSpecs = async () => {
     if (!draftAuthConfig) return;
-    onUpdateApplication?.({
+    const saved = await onUpdateApplication?.({
       ...application,
       swaggerUrls: draftUrls.filter(Boolean),
       authConfig: draftAuthConfig,
     });
-    setIsEditingSpecs(false);
+    if (saved !== false) setIsEditingSpecs(false);
   };
 
   const handleCancelEditSpecs = () => {
@@ -101,12 +139,70 @@ export const ApplicationDetailModal: React.FC<ApplicationDetailModalProps> = ({
     setIsEditingSpecs(false);
   };
 
-  const handleSaveAiSummary = () => {
-    onUpdateApplication?.({
+  const splitLines = (text: string) => text.split('\n').map((l) => l.trim()).filter(Boolean);
+
+  const detailsError = draftDetails
+    ? !draftDetails.name.trim()
+      ? 'Application name is required.'
+      : !draftDetails.owner.trim()
+      ? 'Application owner is required.'
+      : draftDetails.supportDL.trim() && !/^\S+@\S+\.\S+$/.test(draftDetails.supportDL.trim())
+      ? 'Support DL must be a valid email address.'
+      : ''
+    : '';
+
+  const handleSaveDetails = async () => {
+    if (!draftDetails || detailsError) return;
+    const saved = await onUpdateApplication?.({
+      ...application,
+      name: draftDetails.name.trim(),
+      description: draftDetails.description.trim(),
+      owner: draftDetails.owner.trim(),
+      ownerEmail: draftDetails.ownerEmail.trim(),
+      supportDL: draftDetails.supportDL.trim(),
+      department: draftDetails.department.trim(),
+    });
+    if (saved !== false) setIsEditingDetails(false);
+  };
+
+  const handleCancelEditDetails = () => {
+    setDraftDetails(detailsToDraft(application));
+    setIsEditingDetails(false);
+  };
+
+  const handleSaveAiContext = async () => {
+    if (!draftAiContext) return;
+    const saved = await onUpdateApplication?.({
+      ...application,
+      aiContext: {
+        businessPurpose: draftAiContext.businessPurpose,
+        businessDomain: draftAiContext.businessDomain,
+        keyUseCases: splitLines(draftAiContext.keyUseCases),
+        commonWorkflows: splitLines(draftAiContext.commonWorkflows),
+        importantTerminology: splitLines(draftAiContext.importantTerminology).map((l) => {
+          const [term, ...def] = l.split(':');
+          return { term: term.trim(), definition: def.join(':').trim() };
+        }),
+        intendedConsumers: splitLines(draftAiContext.intendedConsumers),
+        usageGuidelines: draftAiContext.usageGuidelines,
+        restrictions: draftAiContext.restrictions,
+        aiGuidance: draftAiContext.aiGuidance,
+      },
+    });
+    if (saved !== false) setIsEditingAiContext(false);
+  };
+
+  const handleCancelEditAiContext = () => {
+    setDraftAiContext(aiContextToDraft(application.aiContext));
+    setIsEditingAiContext(false);
+  };
+
+  const handleSaveAiSummary = async () => {
+    const saved = await onUpdateApplication?.({
       ...application,
       aiSummaryConfig: { ...draftAiSummary, enabled: true },
     });
-    setIsEditingAiSummary(false);
+    if (saved !== false) setIsEditingAiSummary(false);
   };
 
   const handleCancelEditAiSummary = () => {
@@ -130,13 +226,13 @@ export const ApplicationDetailModal: React.FC<ApplicationDetailModalProps> = ({
     >
       <div className="bg-white rounded-2xl max-w-6xl w-full max-h-[92vh] flex flex-col shadow-2xl border border-slate-200 overflow-hidden">
         {/* Modal Header */}
-        <div className="p-6 border-b border-slate-200 bg-slate-50/70 flex items-center justify-between">
-          <div className="flex items-center gap-3.5">
+        <div className="p-6 border-b border-slate-200 bg-slate-50/70 flex items-center justify-between gap-4 flex-shrink-0">
+          <div className="flex items-center gap-3.5 min-w-0 flex-1">
             <div className="w-12 h-12 rounded-xl bg-blue-600 text-white flex items-center justify-center font-bold shadow-md shadow-blue-100 flex-shrink-0">
               <AppWindow className="w-6 h-6" />
             </div>
-            <div>
-              <div className="flex items-center gap-2.5">
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2.5">
                 <h2 className="text-xl font-bold text-slate-900">{application.name}</h2>
                 <span className="px-2.5 py-0.5 rounded-md bg-blue-50 text-blue-700 border border-blue-200 font-mono text-xs font-semibold">
                   {application.appCode}
@@ -151,11 +247,13 @@ export const ApplicationDetailModal: React.FC<ApplicationDetailModalProps> = ({
                   {application.status}
                 </span>
               </div>
-              <p className="text-xs text-slate-500 mt-0.5">{application.description}</p>
+              <p className="text-xs text-slate-500 mt-0.5 line-clamp-2 text-justify" title={application.description}>
+                {application.description}
+              </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-shrink-0">
             {onToggleActive && (
               confirmingStop ? (
                 <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-red-50 border border-red-200">
@@ -219,7 +317,7 @@ export const ApplicationDetailModal: React.FC<ApplicationDetailModalProps> = ({
         </div>
 
         {/* Modal Tabs */}
-        <div className="px-6 border-b border-slate-200 flex items-center gap-6 bg-white overflow-x-auto">
+        <div className="px-6 border-b border-slate-200 flex items-center gap-6 bg-white overflow-x-auto flex-shrink-0">
           <button
             onClick={() => setActiveTab('transformation')}
             className={`py-3.5 text-xs font-bold border-b-2 transition-all flex items-center gap-2 whitespace-nowrap ${
@@ -337,7 +435,7 @@ export const ApplicationDetailModal: React.FC<ApplicationDetailModalProps> = ({
                               </span>
                             )}
                           </div>
-                          <p className="text-[11px] text-slate-600 mt-1">{api.description}</p>
+                          <p className="text-[11px] text-slate-600 mt-1 text-justify">{api.description}</p>
                           <div className="mt-2 flex items-center gap-2 text-[10px] text-slate-500">
                             <span>Inputs: {api.parameters.length} params</span>
                             <span>•</span>
@@ -373,16 +471,83 @@ export const ApplicationDetailModal: React.FC<ApplicationDetailModalProps> = ({
                     This context is injected into AI Agent reasoning for tool selection & safety.
                   </h4>
                 </div>
-                <div className="px-3 py-1 rounded bg-indigo-800/80 border border-indigo-700 text-xs font-mono text-indigo-200">
-                  Skill Context Level: 1
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  <div className="px-3 py-1 rounded bg-indigo-800/80 border border-indigo-700 text-xs font-mono text-indigo-200">
+                    Skill Context Level: 1
+                  </div>
+                  {!isEditingAiContext && onUpdateApplication && (
+                    <button
+                      onClick={() => setIsEditingAiContext(true)}
+                      className="px-3 py-1.5 rounded-lg bg-indigo-800/80 border border-indigo-700 hover:bg-indigo-700 text-white text-[11px] font-semibold flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <Pencil className="w-3 h-3" />
+                      <span>Edit</span>
+                    </button>
+                  )}
                 </div>
+              </div>
+
+              {isEditingAiContext && draftAiContext ? (
+                <div className="space-y-4">
+                  {([
+                    ['businessPurpose', 'Business Purpose', 2, false],
+                    ['businessDomain', 'Business Domain', 1, false],
+                    ['keyUseCases', 'Key Use Cases (one per line)', 4, false],
+                    ['commonWorkflows', 'Common Workflows (one per line)', 4, false],
+                    ['importantTerminology', 'Important Terminology (one per line, Term: definition)', 4, false],
+                    ['intendedConsumers', 'Intended Consumers (one per line)', 3, false],
+                    ['usageGuidelines', 'Usage Guidelines', 3, false],
+                    ['restrictions', 'Security Restrictions', 3, false],
+                    ['aiGuidance', 'AI Usage Guidance & Guardrails', 6, true],
+                  ] as const).map(([field, label, rows, mono]) => (
+                    <div key={field} className="space-y-1.5">
+                      <label className="text-[11px] font-bold uppercase text-slate-400 tracking-wider">{label}</label>
+                      <textarea
+                        value={draftAiContext[field]}
+                        onChange={(e) => setDraftAiContext((prev) => (prev ? { ...prev, [field]: e.target.value } : prev))}
+                        rows={rows}
+                        className={`w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-xs leading-relaxed focus:ring-2 focus:ring-indigo-500 ${
+                          mono ? 'font-mono' : ''
+                        }`}
+                      />
+                    </div>
+                  ))}
+
+                  <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-200">
+                    <button
+                      onClick={handleCancelEditAiContext}
+                      className="px-3 py-1.5 rounded-lg border border-slate-300 hover:bg-slate-100 text-slate-700 text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <XCircle className="w-3.5 h-3.5" />
+                      <span>Cancel</span>
+                    </button>
+                    <button
+                      onClick={handleSaveAiContext}
+                      className="px-3.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <Save className="w-3.5 h-3.5" />
+                      <span>Save AI Context</span>
+                    </button>
+                  </div>
+                </div>
+              ) : (
+              <>
+
+              <div className="bg-white border border-slate-200 rounded-xl p-4 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-bold uppercase text-slate-400 tracking-wider">
+                    Project / Application Description
+                  </span>
+                  <span className="text-[11px] text-indigo-600 font-semibold">Powers AI Skill Understanding</span>
+                </div>
+                <p className="text-xs text-slate-700 leading-relaxed text-justify">{application.description || '—'}</p>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                 {/* Business Purpose & Domain */}
                 <div className="bg-white border border-slate-200 rounded-xl p-4 space-y-2">
                   <span className="text-[11px] font-bold uppercase text-slate-400 tracking-wider">Business Purpose</span>
-                  <p className="text-xs text-slate-700 leading-relaxed">{application.aiContext.businessPurpose}</p>
+                  <p className="text-xs text-slate-700 leading-relaxed text-justify">{application.aiContext.businessPurpose}</p>
 
                   <div className="pt-2 border-t border-slate-100">
                     <span className="text-[11px] font-bold uppercase text-slate-400 tracking-wider">Business Domain</span>
@@ -435,15 +600,31 @@ export const ApplicationDetailModal: React.FC<ApplicationDetailModalProps> = ({
                 <span className="text-[11px] font-bold uppercase text-slate-400 tracking-wider">AI Guidance & Restrictions</span>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
                   <div>
-                    <span className="font-bold text-emerald-800 block mb-1">Execution Guidance:</span>
-                    <p className="text-slate-700 leading-relaxed">{application.aiContext.aiGuidance}</p>
+                    <span className="font-bold text-emerald-800 block mb-1">AI Usage Guidance & Guardrails:</span>
+                    <p className="text-slate-700 leading-relaxed text-justify">{application.aiContext.aiGuidance}</p>
                   </div>
                   <div>
                     <span className="font-bold text-amber-800 block mb-1">Security Restrictions:</span>
-                    <p className="text-slate-700 leading-relaxed">{application.aiContext.restrictions}</p>
+                    <p className="text-slate-700 leading-relaxed text-justify">{application.aiContext.restrictions}</p>
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs pt-3 border-t border-slate-200">
+                  <div>
+                    <span className="font-bold text-slate-800 block mb-1">Usage Guidelines:</span>
+                    <p className="text-slate-700 leading-relaxed text-justify">{application.aiContext.usageGuidelines || '—'}</p>
+                  </div>
+                  <div>
+                    <span className="font-bold text-slate-800 block mb-1">Intended Consumers:</span>
+                    <p className="text-slate-700 leading-relaxed text-justify">
+                      {application.aiContext.intendedConsumers.length > 0
+                        ? application.aiContext.intendedConsumers.join(', ')
+                        : '—'}
+                    </p>
                   </div>
                 </div>
               </div>
+              </>
+              )}
             </div>
           )}
 
@@ -502,6 +683,7 @@ export const ApplicationDetailModal: React.FC<ApplicationDetailModalProps> = ({
                     />
                   </div>
 
+                  {SHOW_SUMMARY_TOOL_PICKER && (
                   <div className="space-y-1.5">
                     <label className="text-[11px] font-bold uppercase text-slate-400 tracking-wider">
                       APIs / Tools This Summary May Use (optional)
@@ -524,6 +706,7 @@ export const ApplicationDetailModal: React.FC<ApplicationDetailModalProps> = ({
                       ))}
                     </div>
                   </div>
+                  )}
 
                   <div className="space-y-1.5">
                     <label className="text-[11px] font-bold uppercase text-slate-400 tracking-wider">
@@ -561,12 +744,12 @@ export const ApplicationDetailModal: React.FC<ApplicationDetailModalProps> = ({
                     <span className="text-[11px] font-bold uppercase text-slate-400 tracking-wider">
                       {application.aiSummaryConfig.title}
                     </span>
-                    <p className="text-xs text-slate-700 leading-relaxed whitespace-pre-wrap">
+                    <p className="text-xs text-slate-700 leading-relaxed text-justify whitespace-pre-wrap">
                       {application.aiSummaryConfig.instructions}
                     </p>
                   </div>
 
-                  {application.aiSummaryConfig.includedApiIds.length > 0 && (
+                  {SHOW_SUMMARY_TOOL_PICKER && application.aiSummaryConfig.includedApiIds.length > 0 && (
                     <div className="bg-white border border-slate-200 rounded-xl p-4 space-y-2">
                       <span className="text-[11px] font-bold uppercase text-slate-400 tracking-wider">
                         Referenced APIs / Tools
@@ -678,6 +861,99 @@ export const ApplicationDetailModal: React.FC<ApplicationDetailModalProps> = ({
                 )}
               </div>
 
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-bold text-slate-500 uppercase">Application Details</span>
+                {!isEditingDetails && onUpdateApplication && (
+                  <button
+                    onClick={() => setIsEditingDetails(true)}
+                    className="px-2.5 py-1 rounded-lg bg-white border border-slate-200 hover:bg-slate-100 text-slate-700 text-[11px] font-semibold flex items-center gap-1 cursor-pointer"
+                  >
+                    <Pencil className="w-3 h-3" />
+                    <span>Edit</span>
+                  </button>
+                )}
+              </div>
+
+              {isEditingDetails && draftDetails ? (
+                <div className="p-4 rounded-xl border border-slate-200 bg-white space-y-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+                    <div>
+                      <label className="block font-bold text-slate-700 mb-1">Application Name *</label>
+                      <input
+                        type="text"
+                        value={draftDetails.name}
+                        onChange={(e) => setDraftDetails((prev) => (prev ? { ...prev, name: e.target.value } : prev))}
+                        className="w-full px-3 py-2 rounded-lg border border-slate-300 text-xs font-semibold focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block font-bold text-slate-700 mb-1">Business Department</label>
+                      <input
+                        type="text"
+                        value={draftDetails.department}
+                        onChange={(e) => setDraftDetails((prev) => (prev ? { ...prev, department: e.target.value } : prev))}
+                        className="w-full px-3 py-2 rounded-lg border border-slate-300 text-xs font-semibold focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block font-bold text-slate-700 mb-1">Application Owner *</label>
+                      <PersonTypeahead
+                        value={draftDetails.owner}
+                        onSelect={(person) =>
+                          setDraftDetails((prev) => (prev ? { ...prev, owner: person.name, ownerEmail: person.email } : prev))
+                        }
+                        placeholder="Search for a person..."
+                        invalid={!draftDetails.owner}
+                      />
+                      {draftDetails.ownerEmail && (
+                        <p className="text-[11px] text-slate-500 mt-1">
+                          Owner email: <span className="font-semibold text-slate-700">{draftDetails.ownerEmail}</span>
+                        </p>
+                      )}
+                    </div>
+                    <div>
+                      <label className="block font-bold text-slate-700 mb-1">Application Support DL</label>
+                      <input
+                        type="email"
+                        value={draftDetails.supportDL}
+                        onChange={(e) => setDraftDetails((prev) => (prev ? { ...prev, supportDL: e.target.value } : prev))}
+                        className="w-full px-3 py-2 rounded-lg border border-slate-300 text-xs font-semibold focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
+                        placeholder="e.g. ctp-support-dl@aexp.com"
+                      />
+                    </div>
+                    <div className="sm:col-span-2">
+                      <label className="block font-bold text-slate-700 mb-1">Project / Application Description</label>
+                      <textarea
+                        rows={4}
+                        value={draftDetails.description}
+                        onChange={(e) => setDraftDetails((prev) => (prev ? { ...prev, description: e.target.value } : prev))}
+                        className="w-full px-3 py-2 rounded-lg border border-slate-300 text-xs leading-relaxed focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
+                      />
+                    </div>
+                  </div>
+                  <p className="text-[11px] text-slate-500">
+                    App code ({application.appCode}) and CAR ID ({application.carId}) are fixed at registration and can't be changed.
+                  </p>
+                  {detailsError && <p className="text-[11px] font-semibold text-red-600">{detailsError}</p>}
+                  <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-200">
+                    <button
+                      onClick={handleCancelEditDetails}
+                      className="px-3 py-1.5 rounded-lg border border-slate-300 hover:bg-slate-100 text-slate-700 text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <XCircle className="w-3.5 h-3.5" />
+                      <span>Cancel</span>
+                    </button>
+                    <button
+                      onClick={handleSaveDetails}
+                      disabled={!!detailsError}
+                      className="px-3.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <Save className="w-3.5 h-3.5" />
+                      <span>Save Details</span>
+                    </button>
+                  </div>
+                </div>
+              ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
                 <div className="p-4 rounded-xl border border-slate-200 bg-white">
                   <span className="text-[11px] text-slate-400 font-bold uppercase">CAR ID</span>
@@ -710,14 +986,15 @@ export const ApplicationDetailModal: React.FC<ApplicationDetailModalProps> = ({
                   <div className="text-xs text-emerald-600 font-medium">Auto-sync enabled</div>
                 </div>
               </div>
+              )}
             </div>
           )}
         </div>
 
         {/* Modal Footer */}
-        <div className="p-4 border-t border-slate-200 bg-slate-50 flex items-center justify-between">
+        <div className="p-4 border-t border-slate-200 bg-slate-50 flex items-center justify-between flex-shrink-0">
           <div className="text-xs text-slate-500">
-            Application ID: <span className="font-mono font-semibold text-slate-700">{application.id}</span>
+            Application ID: <span className="font-mono font-semibold text-slate-700">{application.publicId ?? application.id}</span>
           </div>
           <button
             onClick={onClose}

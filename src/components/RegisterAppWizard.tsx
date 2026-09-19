@@ -124,6 +124,15 @@ export const RegisterAppWizard: React.FC<RegisterAppWizardProps> = ({
   const [terminology, setTerminology] = useState(
     demo ? 'Settled: Cleared funds on permanent ledger\nPending Hold: Pre-authorization hold\nInterchange Ref: Visa/MC network settlement key' : ''
   );
+  const [intendedConsumers, setIntendedConsumers] = useState(
+    demo ? 'Case Management Platform\nCustomer Support Chatbot\nAI Agent Orchestrator' : ''
+  );
+  const [usageGuidelines, setUsageGuidelines] = useState(
+    demo ? 'Ensure customerId is resolved prior to invoking transaction queries.' : ''
+  );
+  const [restrictions, setRestrictions] = useState(
+    demo ? 'Sensitive VIP accounts require elevated clearance.' : ''
+  );
   const [aiGuidance, setAiGuidance] = useState(
     demo
       ? 'Tool selection: Prefer getCustomerTransactions when the user asks about recent payments, charges, or purchases. Call searchCustomer first if only a name or phone number is given, and resolve customerId before calling any transaction-level tool.\n' +
@@ -257,6 +266,9 @@ export const RegisterAppWizard: React.FC<RegisterAppWizardProps> = ({
                 const [term, ...def] = l.split(':');
                 return { term: term.trim(), definition: def.join(':').trim() };
               }),
+            intendedConsumers: intendedConsumers.split('\n').map((l) => l.trim()).filter(Boolean),
+            usageGuidelines,
+            restrictions,
             aiGuidance,
           },
         },
@@ -303,9 +315,9 @@ export const RegisterAppWizard: React.FC<RegisterAppWizardProps> = ({
           const [term, ...def] = l.split(':');
           return { term: term?.trim() || 'Term', definition: def.join(':').trim() || '' };
         }),
-        intendedConsumers: ['Case Management Platform', 'Customer Support Chatbot', 'AI Agent Orchestrator'],
-        usageGuidelines: 'Ensure customerId is resolved prior to invoking transaction queries.',
-        restrictions: 'Sensitive VIP accounts require elevated clearance.',
+        intendedConsumers: intendedConsumers.split('\n').map((l) => l.trim()).filter(Boolean),
+        usageGuidelines,
+        restrictions,
         aiGuidance,
       },
       apis: [
@@ -536,7 +548,7 @@ export const RegisterAppWizard: React.FC<RegisterAppWizardProps> = ({
               <div>
                 <div className="flex items-center justify-between mb-1">
                   <label className="block text-xs font-bold text-slate-900">
-                    Project / Application Description & AI Context *
+                    Project / Application Description *
                   </label>
                   <span className="text-[11px] text-indigo-600 font-semibold">Powers AI Skill Understanding</span>
                 </div>
@@ -607,6 +619,50 @@ export const RegisterAppWizard: React.FC<RegisterAppWizardProps> = ({
                     <p className="text-[11px] text-slate-500 mt-1">
                       Only capture the 2-3 flagship journeys that chain multiple APIs together (e.g. search → fetch → verify). Guidance specific to a single API belongs on that tool's "When to Use" field in its own MCP Tool config, not here.
                     </p>
+                  </div>
+
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">Important Terminology (one per line, "Term: definition")</label>
+                    <textarea
+                      rows={4}
+                      value={terminology}
+                      onChange={(e) => setTerminology(e.target.value)}
+                      className="w-full px-3 py-1.5 rounded-md border border-slate-200 text-xs bg-white"
+                      placeholder={'Settled: Cleared funds on permanent ledger\nPending Hold: Pre-authorization hold'}
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">Intended Consumers (one per line)</label>
+                    <textarea
+                      rows={4}
+                      value={intendedConsumers}
+                      onChange={(e) => setIntendedConsumers(e.target.value)}
+                      className="w-full px-3 py-1.5 rounded-md border border-slate-200 text-xs bg-white"
+                      placeholder={'Case Management Platform\nCustomer Support Chatbot'}
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">Usage Guidelines</label>
+                    <textarea
+                      rows={3}
+                      value={usageGuidelines}
+                      onChange={(e) => setUsageGuidelines(e.target.value)}
+                      className="w-full px-3 py-1.5 rounded-md border border-slate-200 text-xs bg-white"
+                      placeholder="e.g. Ensure customerId is resolved prior to invoking transaction queries."
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">Security Restrictions</label>
+                    <textarea
+                      rows={3}
+                      value={restrictions}
+                      onChange={(e) => setRestrictions(e.target.value)}
+                      className="w-full px-3 py-1.5 rounded-md border border-slate-200 text-xs bg-white"
+                      placeholder="e.g. Sensitive VIP accounts require elevated clearance."
+                    />
                   </div>
 
                   <div className="sm:col-span-2">

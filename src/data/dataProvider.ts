@@ -10,6 +10,7 @@ import {
   UserAccessRecord,
 } from '../types';
 import { isDemoMode } from '../utils/demoMode';
+import { fetchMcpServers } from '../api/mcpServers';
 import {
   INITIAL_APPLICATIONS,
   INITIAL_MCP_SERVERS,
@@ -50,7 +51,12 @@ async function fetchLiveApplications(): Promise<Application[]> {
 }
 
 async function fetchLiveMcpServers(): Promise<McpServer[]> {
-  return INITIAL_MCP_SERVERS;
+  try {
+    return await fetchMcpServers();
+  } catch (err) {
+    console.warn('Could not load MCP servers from the API; using static data.', err);
+    return INITIAL_MCP_SERVERS;
+  }
 }
 
 async function fetchLiveMcpTools(): Promise<McpTool[]> {
