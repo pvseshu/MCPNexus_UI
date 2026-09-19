@@ -71,7 +71,7 @@ Used in the wizard's "API Specification" step. Fetches the given OpenAPI/Swagger
 
 **Notes on the request**
 - `swaggerUrls` is required (at least one URL). Every spec is downloaded, and the discovered endpoints from all specs are returned as one flat list. `id` is a sequential string ("1", "2", ...) across the whole list, so it is only stable while the spec content is unchanged.
-- `authConfig` is optional. Only `type: "authblue"` with an `authBlue` block is used today: the server fetches a token from `tokenUrl` and sends it as `Authorization: Bearer <token>` when downloading the spec. Any other `authConfig` content (for example `idaas` or `oauth` blocks) is accepted but ignored.
+- `authConfig` is optional. `type: "authblue"` (`authBlue` block) and `type: "oauth"` (`oauth` block) are used: the server fetches a token from `tokenUrl` and sends it as `Authorization: Bearer <token>` when downloading the spec. Only the block of the selected `type` has to be filled in (`tokenUrl` + `serviceId` for authblue, `tokenUrl` + `clientId` for oauth); other blocks are accepted as blank defaults. `idaas` is accepted but not used yet.
 
 **Notes on the response**
 - `specVersion` and `baseUrl` come from the first spec. `baseUrl` is the resolved server URL (see "Application and API rows" in section 2).
@@ -189,7 +189,7 @@ Used in the wizard's final "Generate MCP Server" step. This is the **only** step
 - Required: `application.name`, `application.appCode`, `application.swaggerUrls` (at least one URL) and a **non-empty** `selectedApis`. Each `selectedApis` item needs `id`, `endpoint`, `method` and `toolName`. Everything else in `application` is optional, including every `aiContext` field (`intendedConsumers`, `usageGuidelines` and `restrictions` are new; a missing one is stored as empty). `ownerEmail` and `supportDL` must be valid emails when not blank.
 - `selectedApis: []` (or a missing list) fails with `400` and `{ "selectedApis": { "non_field_errors": ["This list may not be empty."] } }`.
 - Because the spec is downloaded again, a selected API is matched by `id` first, then by `endpoint` + `method`. If it no longer exists, the response is `400` with `{ "error": "Selected API GET /x was not found when re-analyzing the spec." }`. A spec that cannot be downloaded also returns `400` with `{ "error": "..." }`.
-- `application.authConfig`: as in section 1, only the `authBlue` block is used and stored. **`servicePassword` is never saved** (stored as an empty string). `idaas` / `oauth` blocks are ignored.
+- `application.authConfig`: as in section 1. **Secrets are saved** on the application in the database (encrypted at rest): `authBlue.servicePassword`, `oauth.clientSecret`, `idaas.secret`. The server uses them to fetch tokens for that application later, for example in section 9. They are never returned by any endpoint (returned as `""`). Sending a blank secret on a later save or `PATCH` keeps the stored one.
 
 **What is stored for each tool**
 
@@ -373,7 +373,7 @@ Used when a card is clicked (application detail popup). Returns the full applica
 }
 ```
 
-- `servicePassword` is **never returned** (always `""`), since it is not stored. To change it the client sends a new one in section 5.
+- `servicePassword` is **never returned** (always `""`), even though it is stored (section 2). To change it the client sends a new one in section 5; leaving it out or sending `""` keeps the stored one.
 - `application.status`: `Active` | `Pending` | `Maintenance` | `Disabled`. `mcpToolsCount` is the number of saved tools.
 - `apis` are the tools already saved in `tools_tool` (with their `tools_toolparameter` rows), not a fresh spec download. Each item has the same shape as an item from section 1, plus `enabledForMcp` (the tool's status is `Active`; `false` shows as "Not Active" in the popup). `id` is the saved tool's database id (as a string), not the sequential id from the discovery step, because those are not stored. `aiSummaryConfig.includedApiIds` refer to these ids.
 - `aiSummaryConfig` is `null` when never configured.
@@ -432,7 +432,7 @@ One partial-update endpoint for every edit on the page. Send only the fields bei
 |---|---|
 | `name`, `description`, `owner`, `ownerEmail`, `supportDL`, `department` | "Edit" under Application Details on the OpenAPI Spec & Metadata tab. `appCode` and `carId` are fixed at registration and are **not** accepted here (sending them returns `400`). |
 | `status` | **Stop Application** (`Disabled`) and **Activate Application** (`Active`) in the popup header (`Maintenance` is also allowed) |
-| `swaggerUrls`, `authConfig` | "Edit" on the API Specification section of the detail modal. Same rules as section 2: only `authBlue` is stored, `servicePassword` is not saved. |
+| `swaggerUrls`, `authConfig` | "Edit" on the API Specification section of the detail modal. Same rules as section 2: only `authBlue` is stored, and a new `servicePassword` replaces the saved one (blank keeps it). |
 | `aiContext` | "Edit" on the Application AI Context & Skill Definition tab |
 | `aiSummaryConfig` | "Edit / Configure" on the AI Summary section |
 
@@ -498,6 +498,113 @@ The side menu shows a badge next to some items (MCP Servers, MCP Tools, Access R
 - Not covered: the static "1.2k" badge on Knowledge Hub is hard-coded in the UI today. Add e.g. `knowledgeDocuments` here when that page gets real data.
 - On `/demo` this endpoint is never called; the counts come from the static data.
 
+---
+
+# MCP Tools page
+
+## 8. List MCP Tools
+
+Feeds the tool card grid on the MCP Tools page, the header counts ("N Governed Capabilities", "N Active", "N Inactive") and the MCP Server / Status dropdowns. It is also what "View N Tools" on an MCP server card opens, pre-filtered to that server.
+
+**GET** `/api/mcp-tools`
+
+**Tables touched:** read-only: `tools_tool`, `tools_toolparameter` (only if input counts are needed), `projects_project` (server / application names).
+
+**Query (optional):** `serverId=mcp-1` returns only that server's tools. Without it, all tools are returned.
+
+**Output**
+```json
+{
+  "tools": [
+    {
+      "id": "tool-1",
+      "name": "getCustomerTransactions",
+      "displayName": "Get Customer Transactions",
+      "description": "Fetches chronological transaction records for a customer with optional date range filters.",
+      "sourceEndpoint": "/customers/{customerId}/transactions",
+      "httpMethod": "GET",
+      "serverId": "mcp-1",
+      "serverName": "Customer Transaction Portal MCP",
+      "applicationId": "1",
+      "applicationName": "Customer Transaction Portal",
+      "requiredPermission": "MCP_GETCUSTOMERTRANSACTIONS",
+      "status": "Active",
+      "isAiReady": true,
+      "aiReadinessScore": 90,
+      "sampleInputsCount": 2,
+      "sampleOutputsCount": 1,
+      "lastUsed": "2026-09-18T14:05:00Z",
+      "callCount": 128
+    }
+  ]
+}
+```
+
+- Field sources: `name`, `displayName`, `description`, `httpMethod`, `requiredPermission`, `status` come from `tools_tool` (`sourceEndpoint` = `tools_tool.path`). `serverId` / `serverName` / `applicationId` / `applicationName` come from the tool's project (same ids as section 3).
+- `status`: `Active` | `Needs Configuration` | `Disabled`. The card shows the "Test Tool" button only for `Active`. A tool with `Needs Configuration` still appears in the list.
+- Search (name, description, endpoint, server name) and the server / status filters run on the client over this list. No pagination or server-side filtering for now, apart from the optional `serverId`.
+- `sampleInputsCount` / `sampleOutputsCount`, `aiReadinessScore`, `lastUsed` and `callCount` are not stored yet (section 2 saves no sample payloads or usage data). Until they exist the backend may return `0` / `null`, and the client shows "0 Configured" and "Used: Never (0 calls)". `lastUsed` is an ISO timestamp or `null`.
+- **Not in this response:** `whenToUse`, `whenNotToUse`, `callSequence`, `inputs`, `outputSchemaDescription` and the sample payloads. Only **Configure Tool** and **Test Tool** need them, so they belong in a separate `GET /api/mcp-tools/{id}` (and a save endpoint), to be specified when those popups get real data.
+- `mcpTools` in the section 7 counts is the length of this list across all servers.
+- On `/demo` this endpoint is never called; the tools come from the static data.
+
+## 9. Run MCP Tool Test
+
+Used by the **Run Test** button in the "Interactive MCP Tool Execution Sandbox" popup (opened by "Test Tool" on a tool card). It calls the tool's real backend API once with the JSON typed in the left panel and returns the response for the right panel. Nothing is saved; "Save as Sample Input / Output" is a separate action (not covered here).
+
+**POST** `/api/mcp-tools/{id}/execute`
+
+**Tables touched:** read-only: `tools_tool`, `tools_toolparameter`, `projects_project` (`base_url`, `auth_config`). Nothing is written.
+
+**Input**
+```json
+{
+  "input": {
+    "customerId": "C12345",
+    "fromDate": "2026-06-01"
+  }
+}
+```
+
+**Output** `200`
+```json
+{
+  "success": true,
+  "httpStatus": 200,
+  "durationMs": 142,
+  "request": {
+    "method": "GET",
+    "url": "https://api.internal.aexp.com/v2/customers/C12345/transactions?fromDate=2026-06-01"
+  },
+  "response": {
+    "customerId": "C12345",
+    "totalCount": 3,
+    "transactions": [
+      { "transactionId": "TX1001", "date": "2026-08-14", "merchant": "Whole Foods Market", "amount": 125.5, "status": "COMPLETED" }
+    ]
+  },
+  "error": null
+}
+```
+
+- `input` is a flat JSON object keyed by parameter name, the same shape as a sample input. The server places each value by the tool's saved parameters (`tools_toolparameter.location`): `path` values fill `{placeholders}` in `tools_tool.path`, `query` / `header` / `cookie` are added to the request, and `body` parameters are combined into the JSON request body. Unknown keys are ignored.
+- The call goes to `projects_project.base_url` + `tools_tool.path` with the tool's `http_method`. If the application uses `authblue` or `oauth`, the server fetches a token from the stored `tokenUrl` and sends `Authorization: Bearer <token>`. `authblue` posts `serviceId` / `servicePassword` / `scopeGroups` as JSON; `oauth` with `credentialStyle: basic_auth` sends `grant_type=client_credentials` with the client id/secret as HTTP Basic auth, and `json_body` posts `requestBodyTemplate` with `{{clientId}}` / `{{clientSecret}}` filled in. `idaas` is not supported yet (the call returns `success: false`). The token request uses that application's own saved `authConfig` from `projects_project`, so each application authenticates with its own credentials. The browser never sends credentials here, and they are never returned in the response.
+- **Upstream failures are still `200`.** When the target API answers with 4xx / 5xx, times out cannot be reached, or no access token could be obtained (`error` starts with "Could not get an access token"), the endpoint returns `200` with `success: false`, the upstream `httpStatus` (or `null` for timeout / unreachable), `response` set to the upstream body when there is one, and `error` set to a short message such as `"Upstream returned 404"` or `"Timed out after 30s"`. The popup shows these in the right panel and in the status bar (instead of a fixed "200 OK").
+- `response` is the parsed JSON body; if the upstream body is not JSON it is returned as a string. Very large bodies are truncated (1 MB) and `error` says so.
+- `request.url` is returned for display only. Header and cookie values, and the token, are never echoed back.
+- `durationMs` is the time of the upstream call only, not the token fetch.
+
+**Errors** (the request itself was not valid, so nothing was called)
+- `404` with `{ "error": "MCP tool not found." }` for an unknown id.
+- `400` with `{ "error": "..." }` when `input` is missing or not an object, or `{ "error": "Missing required parameter: customerId" }` when a required parameter has no value.
+- `409` with `{ "error": "Tool is not active." }` when the tool's status is not `Active`, or its MCP server is `Disabled` / `Maintenance`. The button is already disabled for non-active tools in the UI; this is the server-side guard.
+
+**Notes**
+- This makes a **real call** to the application's API, so a `POST` / `PUT` / `DELETE` tool can change data. The popup should make that clear for non-GET tools (the header already shows the target endpoint); the API does not block them.
+- This is a direct REST call made by the Python API to the application's API. It does not go through the MCP server or check `requiredPermission`; it only tests that the tool's API mapping and the inputs work. Recording tests in audit logs / call counts is not decided yet.
+- The client should set a timeout a little above the server's 30s upstream limit, and keep the Run Test button in its "Executing Tool..." state until the response arrives.
+- On `/demo` this endpoint is never called; the popup keeps returning its canned response.
+
 ## Summary
 
 | # | Method | Path | Used by |
@@ -509,3 +616,5 @@ The side menu shows a badge next to some items (MCP Servers, MCP Tools, Access R
 | 5 | PATCH | `/api/mcp-servers/{id}` | MCP Servers page: status, spec/auth edit, AI summary edit |
 | 6 | PUT | `/api/mcp-servers/{id}/catalog-visibility` | MCP Servers page: catalog toggle on the card |
 | 7 | GET | `/api/navigation/counts` | Side menu badges |
+| 8 | GET | `/api/mcp-tools` | MCP Tools page: tool cards |
+| 9 | POST | `/api/mcp-tools/{id}/execute` | MCP Tools page: Run Test in the execution sandbox popup |

@@ -15,6 +15,8 @@ import {
   Code2,
 } from 'lucide-react';
 import { McpTool, SampleExample } from '../types';
+import { executeMcpTool } from '../api/mcpTools';
+import { isDemoMode } from '../utils/demoMode';
 
 interface ToolTesterModalProps {
   tool: McpTool | null;
@@ -38,13 +40,15 @@ export const ToolTesterModal: React.FC<ToolTesterModalProps> = ({
     sampleInputs[0]?.id || 'custom'
   );
   const [inputJson, setInputJson] = useState<string>(
-    JSON.stringify(sampleInputs[0]?.payload || { customerId: 'C12345' }, null, 2)
+    JSON.stringify(sampleInputs[0]?.payload || (isDemoMode() ? { customerId: 'C12345' } : {}), null, 2)
   );
 
   const [isRunning, setIsRunning] = useState(false);
   const [hasExecuted, setHasExecuted] = useState(false);
   const [executionTime, setExecutionTime] = useState<string>('142ms');
-  const [responseStatus, setResponseStatus] = useState<number>(200);
+  const [responseStatus, setResponseStatus] = useState<number | null>(200);
+  const [executionSuccess, setExecutionSuccess] = useState(true);
+  const [executionError, setExecutionError] = useState<string | null>(null);
   const [responseJson, setResponseJson] = useState<string>(
     JSON.stringify(sampleOutputs[0]?.payload || {}, null, 2)
   );
@@ -59,7 +63,55 @@ export const ToolTesterModal: React.FC<ToolTesterModalProps> = ({
     }
   };
 
+  const runLiveTest = async () => {
+    let input: Record<string, unknown>;
+    try {
+      const parsed = JSON.parse(inputJson);
+      if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error();
+      input = parsed;
+    } catch {
+      setHasExecuted(true);
+      setExecutionSuccess(false);
+      setResponseStatus(null);
+      setExecutionError('Input must be a valid JSON object.');
+      setResponseJson(JSON.stringify({ error: 'INVALID_JSON_INPUT', message: 'Could not parse input' }, null, 2));
+      return;
+    }
+
+    setIsRunning(true);
+    setHasExecuted(false);
+    setSaveSuccessMsg(null);
+    try {
+      const result = await executeMcpTool(tool.id, input);
+      setExecutionSuccess(result.success);
+      setResponseStatus(result.httpStatus);
+      setExecutionTime(`${result.durationMs}ms`);
+      setExecutionError(result.error);
+      setResponseJson(
+        typeof result.response === 'string' ? result.response : JSON.stringify(result.response ?? {}, null, 2)
+      );
+    } catch (err) {
+      setExecutionSuccess(false);
+      setResponseStatus(null);
+      setExecutionTime('—');
+      const message = err instanceof Error ? err.message : 'Could not run the tool test.';
+      setExecutionError(message);
+      setResponseJson(JSON.stringify({ error: message }, null, 2));
+    } finally {
+      setIsRunning(false);
+      setHasExecuted(true);
+    }
+  };
+
   const handleRunTest = () => {
+    setExecutionSuccess(true);
+    setExecutionError(null);
+
+    if (!isDemoMode()) {
+      void runLiveTest();
+      return;
+    }
+
     setIsRunning(true);
     setHasExecuted(false);
     setSaveSuccessMsg(null);
@@ -196,9 +248,18 @@ export const ToolTesterModal: React.FC<ToolTesterModalProps> = ({
 
           <div className="flex items-center gap-3">
             {hasExecuted && (
-              <span className="text-emerald-400 font-semibold flex items-center gap-1">
-                <CheckCircle2 className="w-3.5 h-3.5" />
-                <span>Status 200 OK • {executionTime}</span>
+              <span
+                className={`font-semibold flex items-center gap-1 ${executionSuccess ? 'text-emerald-400' : 'text-red-400'}`}
+              >
+                {executionSuccess ? <CheckCircle2 className="w-3.5 h-3.5" /> : <AlertCircle className="w-3.5 h-3.5" />}
+                <span>
+                  {executionSuccess
+                    ? `Status ${responseStatus ?? 200} OK`
+                    : responseStatus !== null
+                    ? `Failed • Status ${responseStatus}`
+                    : 'Failed'}{' '}
+                  • {executionTime}
+                </span>
               </span>
             )}
           </div>
@@ -208,6 +269,18 @@ export const ToolTesterModal: React.FC<ToolTesterModalProps> = ({
         {saveSuccessMsg && (
           <div className="bg-emerald-50 text-emerald-800 border-b border-emerald-200 px-6 py-2 text-xs font-semibold animate-fadeIn">
             {saveSuccessMsg}
+          </div>
+        )}
+
+        {hasExecuted && !executionSuccess && executionError && (
+          <div className="bg-red-50 text-red-800 border-b border-red-200 px-6 py-2 text-xs font-semibold animate-fadeIn">
+            {executionError}
+          </div>
+        )}
+
+        {!isDemoMode() && tool.httpMethod !== 'GET' && (
+          <div className="bg-amber-50 text-amber-800 border-b border-amber-200 px-6 py-2 text-xs font-semibold">
+            This runs a real {tool.httpMethod} call against the application&apos;s API and may change data.
           </div>
         )}
 
@@ -285,8 +358,14 @@ export const ToolTesterModal: React.FC<ToolTesterModalProps> = ({
               </label>
 
               {hasExecuted && (
-                <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200">
-                  HTTP 200 • JSON Valid
+                <span
+                  className={`text-[11px] font-mono px-2 py-0.5 rounded border ${
+                    executionSuccess
+                      ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                      : 'bg-red-50 text-red-700 border-red-200'
+                  }`}
+                >
+                  {executionSuccess ? `HTTP ${responseStatus ?? 200} • JSON Valid` : `Failed${responseStatus !== null ? ` • HTTP ${responseStatus}` : ''}`}
                 </span>
               )}
             </div>

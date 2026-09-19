@@ -190,12 +190,12 @@ export const McpToolsView: React.FC<McpToolsViewProps> = ({
               <div className="pt-2 border-t border-slate-100 grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
                 <div className="p-2 rounded bg-slate-50 border border-slate-100">
                   <span className="text-[10px] text-slate-400 block font-medium">Sample Inputs</span>
-                  <strong className="text-slate-900">{tool.sampleInputs.length} Configured</strong>
+                  <strong className="text-slate-900">{tool.sampleInputsCount ?? tool.sampleInputs.length} Configured</strong>
                 </div>
 
                 <div className="p-2 rounded bg-slate-50 border border-slate-100">
                   <span className="text-[10px] text-slate-400 block font-medium">Sample Outputs</span>
-                  <strong className="text-slate-900">{tool.sampleOutputs.length} Configured</strong>
+                  <strong className="text-slate-900">{tool.sampleOutputsCount ?? tool.sampleOutputs.length} Configured</strong>
                 </div>
 
                 <div className="p-2 rounded bg-slate-50 border border-slate-100 col-span-2 sm:col-span-1">

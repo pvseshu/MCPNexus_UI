@@ -52,6 +52,9 @@ export interface McpTool {
   outputSchemaDescription: string;
   sampleInputs: SampleExample[];
   sampleOutputs: SampleExample[];
+  // Set by the list API, which returns counts instead of the payloads.
+  sampleInputsCount?: number;
+  sampleOutputsCount?: number;
   requiredPermission: string;
   status: 'Active' | 'Disabled' | 'Needs Configuration';
   isAiReady: boolean;

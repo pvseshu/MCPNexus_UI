@@ -11,6 +11,7 @@ import {
 } from '../types';
 import { isDemoMode } from '../utils/demoMode';
 import { fetchMcpServers } from '../api/mcpServers';
+import { fetchMcpTools } from '../api/mcpTools';
 import {
   INITIAL_APPLICATIONS,
   INITIAL_MCP_SERVERS,
@@ -60,7 +61,12 @@ async function fetchLiveMcpServers(): Promise<McpServer[]> {
 }
 
 async function fetchLiveMcpTools(): Promise<McpTool[]> {
-  return INITIAL_MCP_TOOLS;
+  try {
+    return await fetchMcpTools();
+  } catch (err) {
+    console.warn('Could not load MCP tools from the API; using static data.', err);
+    return INITIAL_MCP_TOOLS;
+  }
 }
 
 async function fetchLiveAccessRequests(): Promise<AccessRequest[]> {
