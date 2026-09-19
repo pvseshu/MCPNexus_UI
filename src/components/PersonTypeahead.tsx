@@ -7,12 +7,14 @@ interface PersonTypeaheadProps {
   value: string;
   onSelect: (person: DirectoryPerson) => void;
   placeholder?: string;
+  invalid?: boolean;
 }
 
 export const PersonTypeahead: React.FC<PersonTypeaheadProps> = ({
   value,
   onSelect,
   placeholder = 'Search people by name...',
+  invalid = false,
 }) => {
   const [query, setQuery] = useState(value);
   const [isOpen, setIsOpen] = useState(false);
@@ -46,7 +48,9 @@ export const PersonTypeahead: React.FC<PersonTypeaheadProps> = ({
           }}
           onFocus={() => setIsOpen(true)}
           onBlur={() => setTimeout(() => setIsOpen(false), 150)}
-          className="w-full pl-8 pr-3.5 py-2 rounded-lg border border-slate-200 text-xs font-semibold focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
+          className={`w-full pl-8 pr-3.5 py-2 rounded-lg border text-xs font-semibold focus:outline-hidden focus:ring-2 ${
+            invalid ? 'border-red-400 focus:ring-red-500' : 'border-slate-200 focus:ring-indigo-500'
+          }`}
           placeholder={placeholder}
         />
       </div>

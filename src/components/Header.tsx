@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { NavSection } from '../types';
 import { ThemeSwitcherControl } from './ThemeSwitcherControl';
+import { isDemoMode } from '../utils/demoMode';
 
 interface HeaderProps {
   currentSection: NavSection;
@@ -154,6 +155,7 @@ export const Header: React.FC<HeaderProps> = ({
   };
 
   const currentMeta = getSectionTitle(currentSection);
+  const demoMode = isDemoMode();
 
   return (
     <header
@@ -172,6 +174,17 @@ export const Header: React.FC<HeaderProps> = ({
           <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
           <span>Orchestrator Online • {activeServersCount ?? 0} Servers Active</span>
         </div>
+
+        {demoMode && (
+          <div
+            id="demo-mode-badge"
+            className="hidden lg:flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-50 text-amber-700 border border-amber-200 text-xs font-semibold"
+            title="Showing static demo data — changes are not persisted"
+          >
+            <Sparkles className="w-3 h-3 text-amber-600" />
+            <span>Demo Mode</span>
+          </div>
+        )}
       </div>
 
       {/* Right Controls & Quick Actions */}

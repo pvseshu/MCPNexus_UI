@@ -22,10 +22,17 @@ import {
 import { EnterpriseApplication, McpServer, McpTool, DirectoryPerson, ApiAuthConfig, createDefaultAuthConfig } from '../types';
 import { PersonTypeahead } from './PersonTypeahead';
 import { ApiAuthConfigEditor, SwaggerUrlListEditor } from './ApiAuthConfigEditor';
+import { isDemoMode } from '../utils/demoMode';
+import { analyzeApiSpec, generateMcpServer, DiscoveredApi, GenerateMcpResponse } from '../api/appRegistration';
 
 interface RegisterAppWizardProps {
   onClose: () => void;
   onComplete: (newApp: EnterpriseApplication, generatedServer: McpServer, generatedTools: McpTool[]) => void;
+}
+
+// Required text fields stay red-bordered until a value is entered.
+function requiredFieldBorder(value: string): string {
+  return value.trim() ? 'border-slate-200 focus:ring-indigo-500' : 'border-red-400 focus:ring-red-500';
 }
 
 const SWAGGER_URL_CONVENTIONS: { framework: string; path: string }[] = [
@@ -75,51 +82,77 @@ export const RegisterAppWizard: React.FC<RegisterAppWizardProps> = ({
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [generationProgress, setGenerationProgress] = useState(0);
+  const [generateError, setGenerateError] = useState<string | null>(null);
+  const [generated, setGenerated] = useState<GenerateMcpResponse | null>(null);
+
+  // /demo pre-fills every field with the same sample application so the wizard
+  // demos well without typing. The regular app starts every field blank
+  // (placeholders still show the expected format) so nothing gets registered
+  // with leftover sample text by accident.
+  const demo = isDemoMode();
 
   // Form states
-  const [appName, setAppName] = useState('Customer Transaction Portal');
-  const [appCode, setAppCode] = useState('CTP-CORE');
+  const [appName, setAppName] = useState(demo ? 'Customer Transaction Portal' : '');
+  const [appCode, setAppCode] = useState(demo ? 'CTP-CORE' : '');
   const [carId, setCarId] = useState('');
   const [owner, setOwner] = useState('');
   const [ownerEmail, setOwnerEmail] = useState('');
   const [supportDL, setSupportDL] = useState('');
-  const [department, setDepartment] = useState('Retail Banking');
+  const [department, setDepartment] = useState(demo ? 'Retail Banking' : '');
 
   const handleSelectOwner = (person: DirectoryPerson) => {
     setOwner(person.name);
     setOwnerEmail(person.email);
   };
   const [appDescription, setAppDescription] = useState(
-    'Provides customer transaction history, transaction search, customer profile information, transaction status, and related customer servicing capabilities. It is primarily used by customer support and case management applications for investigating customer issues.'
+    demo
+      ? 'Provides customer transaction history, transaction search, customer profile information, transaction status, and related customer servicing capabilities. It is primarily used by customer support and case management applications for investigating customer issues.'
+      : ''
   );
 
   // AI Context structured states
   const [businessPurpose, setBusinessPurpose] = useState(
-    'Provide unified transaction search and ledger transparency for frontline customer service agents and dispute management pipelines.'
+    demo ? 'Provide unified transaction search and ledger transparency for frontline customer service agents and dispute management pipelines.' : ''
   );
-  const [businessDomain, setBusinessDomain] = useState('Customer Servicing & Payment Transactions');
-  const [keyUseCases, setKeyUseCases] = useState('Transaction discrepancy investigation\nMonthly statement audit\nDisputed charge verification');
-  const [commonWorkflows, setCommonWorkflows] = useState('Search customer -> Fetch 30-day transactions -> Verify cleared settlement status');
-  const [terminology, setTerminology] = useState('Settled: Cleared funds on permanent ledger\nPending Hold: Pre-authorization hold\nInterchange Ref: Visa/MC network settlement key');
+  const [businessDomain, setBusinessDomain] = useState(demo ? 'Customer Servicing & Payment Transactions' : '');
+  const [keyUseCases, setKeyUseCases] = useState(
+    demo ? 'Transaction discrepancy investigation\nMonthly statement audit\nDisputed charge verification' : ''
+  );
+  const [commonWorkflows, setCommonWorkflows] = useState(
+    demo ? 'Search customer -> Fetch 30-day transactions -> Verify cleared settlement status' : ''
+  );
+  const [terminology, setTerminology] = useState(
+    demo ? 'Settled: Cleared funds on permanent ledger\nPending Hold: Pre-authorization hold\nInterchange Ref: Visa/MC network settlement key' : ''
+  );
   const [aiGuidance, setAiGuidance] = useState(
-    'Tool selection: Prefer getCustomerTransactions when the user asks about recent payments, charges, or purchases. Call searchCustomer first if only a name or phone number is given, and resolve customerId before calling any transaction-level tool.\n' +
-    'Sequencing: Never call refund or write-actions without first confirming the transaction status via getTransactionDetails.\n' +
-    'Data handling: Never return full 16-digit card PANs, SSNs, or raw auth tokens in responses — mask to last 4 digits.\n' +
-    'VIP/Restricted accounts: Transactions involving Restricted Wealth/VIP accounts require elevated clearance (GROUP_TRANSACTION_VIEW) — never pass or return card numbers, balances, or transaction details for these accounts without it.\n' +
-    'Escalation: If the customer account is flagged VIP/Restricted, do not proceed automatically — surface a warning and require human confirmation.\n' +
-    'Ambiguity: If a required parameter (e.g. customerId, date range) is missing or ambiguous, ask a clarifying question instead of guessing a default.\n' +
-    'Rate/Scope limits: Do not fetch more than 90 days of transaction history in a single call; page or split larger ranges.'
+    demo
+      ? 'Tool selection: Prefer getCustomerTransactions when the user asks about recent payments, charges, or purchases. Call searchCustomer first if only a name or phone number is given, and resolve customerId before calling any transaction-level tool.\n' +
+        'Sequencing: Never call refund or write-actions without first confirming the transaction status via getTransactionDetails.\n' +
+        'Data handling: Never return full 16-digit card PANs, SSNs, or raw auth tokens in responses — mask to last 4 digits.\n' +
+        'VIP/Restricted accounts: Transactions involving Restricted Wealth/VIP accounts require elevated clearance (GROUP_TRANSACTION_VIEW) — never pass or return card numbers, balances, or transaction details for these accounts without it.\n' +
+        'Escalation: If the customer account is flagged VIP/Restricted, do not proceed automatically — surface a warning and require human confirmation.\n' +
+        'Ambiguity: If a required parameter (e.g. customerId, date range) is missing or ambiguous, ask a clarifying question instead of guessing a default.\n' +
+        'Rate/Scope limits: Do not fetch more than 90 days of transaction history in a single call; page or split larger ranges.'
+      : ''
   );
 
   // Step 2 Spec state
-  const [swaggerUrls, setSwaggerUrls] = useState<string[]>([
-    'https://api.internal.aexp.com/v2/customer-transactions/openapi.json',
-  ]);
+  const [swaggerUrls, setSwaggerUrls] = useState<string[]>(
+    demo ? ['https://api.internal.aexp.com/v2/customer-transactions/openapi.json'] : ['']
+  );
   const [authConfig, setAuthConfig] = useState<ApiAuthConfig>(createDefaultAuthConfig('authblue'));
-  const [specAnalyzed, setSpecAnalyzed] = useState(true);
+  const [specAnalyzed, setSpecAnalyzed] = useState(demo);
+  const [analyzeError, setAnalyzeError] = useState<string | null>(null);
+  const [specMeta, setSpecMeta] = useState({
+    specVersion: 'OpenAPI 3.1.0',
+    baseUrl: 'https://api.internal.aexp.com',
+    totalApisDiscovered: 42,
+    tagGroups: ['Transactions', 'Profile', 'Status', 'Directory', 'Statements'],
+  });
 
-  // Step 3 APIs selection state (42 discovered, default 24 selected)
-  const [apiList, setApiList] = useState([
+  // Step 3 APIs selection state — demo pre-populates a sample discovery result;
+  // the regular app starts empty until "Analyze API Specification(s)" runs.
+  const DEMO_API_LIST = [
     { id: '1', endpoint: '/customers/{customerId}/transactions', method: 'GET', name: 'Get Customer Transactions', toolName: 'getCustomerTransactions', enabled: true, tag: 'Transactions' },
     { id: '2', endpoint: '/customers/{customerId}', method: 'GET', name: 'Get Customer Profile', toolName: 'getCustomer', enabled: true, tag: 'Profile' },
     { id: '3', endpoint: '/customers/{customerId}/status', method: 'GET', name: 'Get Customer Status', toolName: 'getCustomerStatus', enabled: true, tag: 'Status' },
@@ -128,14 +161,48 @@ export const RegisterAppWizard: React.FC<RegisterAppWizardProps> = ({
     { id: '6', endpoint: '/transactions/{transactionId}', method: 'GET', name: 'Get Transaction by ID', toolName: 'getTransactionDetails', enabled: true, tag: 'Transactions' },
     { id: '7', endpoint: '/transactions/refund', method: 'POST', name: 'Initiate Customer Refund', toolName: 'initiateRefund', enabled: false, tag: 'Admin Action' },
     { id: '8', endpoint: '/customers/{customerId}/cards', method: 'GET', name: 'Get Active Cards', toolName: 'getCustomerCards', enabled: true, tag: 'Cards' },
-  ]);
+  ];
+  const [apiList, setApiList] = useState(demo ? DEMO_API_LIST : []);
 
-  const handleAnalyzeSpec = () => {
+  const handleAnalyzeSpec = async () => {
     setIsAnalyzing(true);
-    setTimeout(() => {
-      setIsAnalyzing(false);
+    setAnalyzeError(null);
+
+    // /demo always shows the same canned discovery result — never calls the backend.
+    if (isDemoMode()) {
+      setTimeout(() => {
+        setIsAnalyzing(false);
+        setSpecAnalyzed(true);
+      }, 1200);
+      return;
+    }
+
+    try {
+      const result = await analyzeApiSpec({ swaggerUrls: swaggerUrls.filter(Boolean), authConfig });
+      setApiList(
+        result.apis.map((api: DiscoveredApi) => ({
+          id: api.id,
+          endpoint: api.endpoint,
+          method: api.method,
+          name: api.summary,
+          toolName: api.suggestedToolName,
+          enabled: true,
+          tag: api.tag,
+        }))
+      );
+      setSpecMeta({
+        specVersion: result.specVersion,
+        baseUrl: result.baseUrl,
+        totalApisDiscovered: result.totalApisDiscovered,
+        tagGroups: result.tagGroups,
+      });
       setSpecAnalyzed(true);
-    }, 1200);
+    } catch (err) {
+      setAnalyzeError(err instanceof Error ? err.message : 'Failed to analyze API specification.');
+      setSpecAnalyzed(false);
+    } finally {
+      setIsAnalyzing(false);
+    }
   };
 
   const handleToggleApi = (id: string) => {
@@ -144,26 +211,72 @@ export const RegisterAppWizard: React.FC<RegisterAppWizardProps> = ({
     );
   };
 
-  const handleStartGeneration = () => {
+  const handleStartGeneration = async () => {
     setStep(5);
     setIsGenerating(true);
+    setGenerateError(null);
     setGenerationProgress(10);
 
+    // Animate progress up to 90% while the request is in flight; 100% on success.
     const interval = setInterval(() => {
-      setGenerationProgress((p) => {
-        if (p >= 100) {
-          clearInterval(interval);
-          setIsGenerating(false);
-          return 100;
-        }
-        return p + 20;
-      });
+      setGenerationProgress((p) => Math.min(p + 10, 90));
     }, 450);
+
+    // /demo never calls the backend.
+    if (isDemoMode()) {
+      setTimeout(() => {
+        clearInterval(interval);
+        setGenerationProgress(100);
+        setIsGenerating(false);
+      }, 2200);
+      return;
+    }
+
+    try {
+      const result = await generateMcpServer({
+        application: {
+          name: appName,
+          appCode,
+          carId,
+          description: appDescription,
+          owner,
+          ownerEmail,
+          supportDL,
+          department,
+          swaggerUrls: swaggerUrls.filter(Boolean),
+          authConfig,
+          aiContext: {
+            businessPurpose,
+            businessDomain,
+            keyUseCases: keyUseCases.split('\n').filter(Boolean),
+            commonWorkflows: commonWorkflows.split('\n').filter(Boolean),
+            importantTerminology: terminology
+              .split('\n')
+              .filter(Boolean)
+              .map((l) => {
+                const [term, ...def] = l.split(':');
+                return { term: term.trim(), definition: def.join(':').trim() };
+              }),
+            aiGuidance,
+          },
+        },
+        selectedApis: apiList
+          .filter((api) => api.enabled)
+          .map((api) => ({ id: api.id, endpoint: api.endpoint, method: api.method, toolName: api.toolName })),
+      });
+      setGenerated(result);
+      setGenerationProgress(100);
+    } catch (err) {
+      setGenerateError(err instanceof Error ? err.message : 'Failed to generate MCP server.');
+    } finally {
+      clearInterval(interval);
+      setIsGenerating(false);
+    }
   };
 
   const handleFinish = () => {
     const newApp: EnterpriseApplication = {
-      id: `app-${Date.now()}`,
+      id: generated?.application.id ?? `app-${Date.now()}`,
       name: appName,
       appCode: appCode || 'NEW-APP',
       carId,
@@ -173,8 +286,8 @@ export const RegisterAppWizard: React.FC<RegisterAppWizardProps> = ({
       supportDL: supportDL,
       department: department,
       apiCount: 42,
-      mcpServerId: `mcp-${Date.now()}`,
-      mcpServerName: `${appName} MCP`,
+      mcpServerId: generated?.mcpServer.id ?? `mcp-${Date.now()}`,
+      mcpServerName: generated?.mcpServer.name ?? `${appName} MCP`,
       mcpToolsCount: apiList.filter((a) => a.enabled).length,
       status: 'Active',
       isAiReady: true,
@@ -216,7 +329,7 @@ export const RegisterAppWizard: React.FC<RegisterAppWizardProps> = ({
     const generatedServer: McpServer = {
       id: newApp.mcpServerId,
       name: newApp.mcpServerName,
-      version: '1.0.0',
+      version: generated?.mcpServer.version ?? '1.0.0',
       applicationId: newApp.id,
       applicationName: newApp.name,
       owner: newApp.owner,
@@ -224,7 +337,7 @@ export const RegisterAppWizard: React.FC<RegisterAppWizardProps> = ({
       status: 'Active',
       usedByApps: [],
       dependsOnServers: ['IAM & Access Governance MCP'],
-      endpointUrl: `https://mcp.internal.aexp.com/${appCode.toLowerCase()}`,
+      endpointUrl: generated?.mcpServer.endpointUrl ?? `https://mcp.internal.aexp.com/${appCode.toLowerCase()}`,
       transportType: 'Streamable HTTP',
       lastDeployed: 'Just now',
       healthStatus: 'Healthy',
@@ -234,7 +347,7 @@ export const RegisterAppWizard: React.FC<RegisterAppWizardProps> = ({
     const generatedTools: McpTool[] = apiList
       .filter((api) => api.enabled)
       .map((api) => ({
-        id: `tool-${api.id}-${Date.now()}`,
+        id: generated?.mcpTools.find((t) => t.name === api.toolName)?.id ?? `tool-${api.id}-${Date.now()}`,
         name: api.toolName,
         displayName: api.name,
         sourceEndpoint: api.endpoint,
@@ -346,7 +459,7 @@ export const RegisterAppWizard: React.FC<RegisterAppWizardProps> = ({
                     type="text"
                     value={appName}
                     onChange={(e) => setAppName(e.target.value)}
-                    className="w-full px-3.5 py-2 rounded-lg border border-slate-200 text-xs font-semibold focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
+                    className={`w-full px-3.5 py-2 rounded-lg border text-xs font-semibold focus:outline-hidden focus:ring-2 ${requiredFieldBorder(appName)}`}
                     placeholder="e.g. Customer Transaction Portal"
                   />
                 </div>
@@ -357,7 +470,7 @@ export const RegisterAppWizard: React.FC<RegisterAppWizardProps> = ({
                     type="text"
                     value={appCode}
                     onChange={(e) => setAppCode(e.target.value)}
-                    className="w-full px-3.5 py-2 rounded-lg border border-slate-200 text-xs font-mono font-semibold focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
+                    className={`w-full px-3.5 py-2 rounded-lg border text-xs font-mono font-semibold focus:outline-hidden focus:ring-2 ${requiredFieldBorder(appCode)}`}
                     placeholder="e.g. CTP-PROD"
                   />
                 </div>
@@ -368,19 +481,15 @@ export const RegisterAppWizard: React.FC<RegisterAppWizardProps> = ({
                     type="text"
                     inputMode="numeric"
                     value={carId}
-                    onChange={(e) => setCarId(e.target.value.replace(/\D/g, '').slice(0, 10))}
-                    className={`w-full px-3.5 py-2 rounded-lg border text-xs font-mono font-semibold focus:outline-hidden focus:ring-2 ${
-                      carId && carId.length !== 10
-                        ? 'border-red-300 focus:ring-red-500'
-                        : 'border-slate-200 focus:ring-indigo-500'
-                    }`}
-                    placeholder="e.g. 1004582931"
-                    maxLength={10}
+                    onChange={(e) => setCarId(e.target.value.replace(/\D/g, '').slice(0, 9))}
+                    className={`w-full px-3.5 py-2 rounded-lg border text-xs font-mono font-semibold focus:outline-hidden focus:ring-2 ${requiredFieldBorder(carId.length === 9 ? carId : '')}`}
+                    placeholder="e.g. 600123456"
+                    maxLength={9}
                   />
-                  <p className={`text-[11px] mt-1 ${carId && carId.length !== 10 ? 'text-red-600' : 'text-slate-500'}`}>
-                    {carId && carId.length !== 10
-                      ? 'CAR ID must be exactly 10 digits.'
-                      : "Organization's 10-digit Application CAR ID."}
+                  <p className={`text-[11px] mt-1 ${carId && carId.length !== 9 ? 'text-red-600' : 'text-slate-500'}`}>
+                    {carId && carId.length !== 9
+                      ? 'CAR ID must be exactly 9 digits.'
+                      : "Organization's 9-digit Application CAR ID."}
                   </p>
                 </div>
 
@@ -390,6 +499,7 @@ export const RegisterAppWizard: React.FC<RegisterAppWizardProps> = ({
                     value={owner}
                     onSelect={handleSelectOwner}
                     placeholder="Search for a person..."
+                    invalid={!owner}
                   />
                   {ownerEmail && (
                     <p className="text-[11px] text-slate-500 mt-1">Owner email: <span className="font-semibold text-slate-700">{ownerEmail}</span></p>
@@ -402,7 +512,7 @@ export const RegisterAppWizard: React.FC<RegisterAppWizardProps> = ({
                     type="text"
                     value={department}
                     onChange={(e) => setDepartment(e.target.value)}
-                    className="w-full px-3.5 py-2 rounded-lg border border-slate-200 text-xs font-semibold focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
+                    className={`w-full px-3.5 py-2 rounded-lg border text-xs font-semibold focus:outline-hidden focus:ring-2 ${requiredFieldBorder(department)}`}
                     placeholder="e.g. Retail Banking Operations"
                   />
                 </div>
@@ -413,7 +523,7 @@ export const RegisterAppWizard: React.FC<RegisterAppWizardProps> = ({
                     type="email"
                     value={supportDL}
                     onChange={(e) => setSupportDL(e.target.value)}
-                    className="w-full px-3.5 py-2 rounded-lg border border-slate-200 text-xs font-semibold focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
+                    className={`w-full px-3.5 py-2 rounded-lg border text-xs font-semibold focus:outline-hidden focus:ring-2 ${requiredFieldBorder(supportDL)}`}
                     placeholder="e.g. ctp-support-dl@aexp.com"
                   />
                   <p className="text-[11px] text-slate-500 mt-1">
@@ -434,7 +544,7 @@ export const RegisterAppWizard: React.FC<RegisterAppWizardProps> = ({
                   rows={6}
                   value={appDescription}
                   onChange={(e) => setAppDescription(e.target.value)}
-                  className="w-full px-3.5 py-2 rounded-lg border border-slate-200 text-xs text-slate-800 focus:outline-hidden focus:ring-2 focus:ring-indigo-500 leading-relaxed"
+                  className={`w-full px-3.5 py-2 rounded-lg border text-xs text-slate-800 focus:outline-hidden focus:ring-2 leading-relaxed ${requiredFieldBorder(appDescription)}`}
                   placeholder="Provide detailed information about this application, its purpose, business domain, key workflows, terminology, and how its APIs should be used..."
                 />
                 <p className="text-[11px] text-slate-500 mt-1">
@@ -457,6 +567,7 @@ export const RegisterAppWizard: React.FC<RegisterAppWizardProps> = ({
                       value={businessPurpose}
                       onChange={(e) => setBusinessPurpose(e.target.value)}
                       className="w-full px-3 py-1.5 rounded-md border border-slate-200 text-xs bg-white"
+                      placeholder="e.g. Provide unified transaction search and ledger transparency for frontline customer service agents."
                     />
                   </div>
 
@@ -467,6 +578,7 @@ export const RegisterAppWizard: React.FC<RegisterAppWizardProps> = ({
                       value={businessDomain}
                       onChange={(e) => setBusinessDomain(e.target.value)}
                       className="w-full px-3 py-1.5 rounded-md border border-slate-200 text-xs bg-white"
+                      placeholder="e.g. Customer Servicing & Payment Transactions"
                     />
                   </div>
 
@@ -477,6 +589,7 @@ export const RegisterAppWizard: React.FC<RegisterAppWizardProps> = ({
                       value={keyUseCases}
                       onChange={(e) => setKeyUseCases(e.target.value)}
                       className="w-full px-3 py-1.5 rounded-md border border-slate-200 text-xs bg-white"
+                      placeholder={'Transaction discrepancy investigation\nMonthly statement audit\nDisputed charge verification'}
                     />
                   </div>
 
@@ -489,6 +602,7 @@ export const RegisterAppWizard: React.FC<RegisterAppWizardProps> = ({
                       value={commonWorkflows}
                       onChange={(e) => setCommonWorkflows(e.target.value)}
                       className="w-full px-3 py-1.5 rounded-md border border-slate-200 text-xs bg-white"
+                      placeholder="e.g. Search customer -> Fetch 30-day transactions -> Verify cleared settlement status"
                     />
                     <p className="text-[11px] text-slate-500 mt-1">
                       Only capture the 2-3 flagship journeys that chain multiple APIs together (e.g. search → fetch → verify). Guidance specific to a single API belongs on that tool's "When to Use" field in its own MCP Tool config, not here.
@@ -502,6 +616,7 @@ export const RegisterAppWizard: React.FC<RegisterAppWizardProps> = ({
                       value={aiGuidance}
                       onChange={(e) => setAiGuidance(e.target.value)}
                       className="w-full px-3 py-1.5 rounded-md border border-slate-200 text-xs bg-white font-mono leading-relaxed"
+                      placeholder={'Tool selection: Prefer toolX when the user asks about... Call searchCustomer first if only a name or phone number is given.\nSequencing: Never call refund or write-actions without first confirming status.\nData handling: Never return full card PANs, SSNs, or raw auth tokens — mask to last 4 digits.\nEscalation: If the account is flagged VIP/Restricted, surface a warning and require human confirmation.\nAmbiguity: If a required parameter is missing, ask a clarifying question instead of guessing.'}
                     />
                     <p className="text-[11px] text-slate-500 mt-1">
                       The more specific this is, the more weight the AI gives it when choosing and sequencing tools. Cover: tool selection rules, call sequencing/prerequisites, sensitive-data handling, escalation conditions, and any rate or scope limits.
@@ -541,27 +656,34 @@ export const RegisterAppWizard: React.FC<RegisterAppWizardProps> = ({
                 <ApiAuthConfigEditor value={authConfig} onChange={setAuthConfig} />
               </div>
 
+              {analyzeError && (
+                <div className="border border-red-200 bg-red-50 rounded-xl p-4 flex items-start gap-2 text-red-800 text-xs animate-fadeIn">
+                  <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                  <span>{analyzeError}</span>
+                </div>
+              )}
+
               {specAnalyzed && (
                 <div className="border border-emerald-200 bg-emerald-50/40 rounded-xl p-5 space-y-4 animate-fadeIn">
                   <div className="flex items-center justify-between pb-3 border-b border-emerald-100">
                     <div className="flex items-center gap-2 text-emerald-900 font-bold text-sm">
                       <CheckCircle2 className="w-5 h-5 text-emerald-600" />
-                      <span>Specification Analyzed Successfully — 42 APIs Discovered</span>
+                      <span>Specification Analyzed Successfully — {specMeta.totalApisDiscovered} APIs Discovered</span>
                     </div>
                     <span className="px-2.5 py-0.5 rounded bg-emerald-100 text-emerald-800 font-mono text-xs font-bold">
-                      OpenAPI 3.1.0
+                      {specMeta.specVersion}
                     </span>
                   </div>
 
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs">
                     <div className="bg-white p-3 rounded-lg border border-emerald-100">
                       <span className="text-slate-400 font-medium">Discovered Endpoints</span>
-                      <div className="text-lg font-bold text-slate-900 mt-0.5">42 APIs</div>
+                      <div className="text-lg font-bold text-slate-900 mt-0.5">{specMeta.totalApisDiscovered} APIs</div>
                     </div>
                     <div className="bg-white p-3 rounded-lg border border-emerald-100">
                       <span className="text-slate-400 font-medium">Base URL</span>
                       <div className="text-xs font-mono font-bold text-slate-900 mt-0.5 truncate">
-                        https://api.internal.aexp.com
+                        {specMeta.baseUrl}
                       </div>
                     </div>
                     <div className="bg-white p-3 rounded-lg border border-emerald-100">
@@ -570,7 +692,7 @@ export const RegisterAppWizard: React.FC<RegisterAppWizardProps> = ({
                     </div>
                     <div className="bg-white p-3 rounded-lg border border-emerald-100">
                       <span className="text-slate-400 font-medium">Tag Groups</span>
-                      <div className="text-xs font-bold text-slate-900 mt-0.5">5 Resource Tags</div>
+                      <div className="text-xs font-bold text-slate-900 mt-0.5">{specMeta.tagGroups.length} Resource Tags</div>
                     </div>
                   </div>
                 </div>
@@ -728,6 +850,14 @@ export const RegisterAppWizard: React.FC<RegisterAppWizardProps> = ({
                     {generationProgress >= 80 && 'Binding Orchestrator RBAC Policies...'}
                   </div>
                 </div>
+              ) : generateError ? (
+                <div className="space-y-4 max-w-md mx-auto animate-fadeIn">
+                  <div className="w-16 h-16 rounded-full bg-red-100 text-red-600 flex items-center justify-center mx-auto ring-8 ring-red-50">
+                    <AlertCircle className="w-10 h-10" />
+                  </div>
+                  <h3 className="text-xl font-bold text-slate-900">MCP Generation Failed</h3>
+                  <p className="text-xs text-red-700 bg-red-50 border border-red-200 rounded-lg p-3 text-left">{generateError}</p>
+                </div>
               ) : (
                 <div className="space-y-6 max-w-lg mx-auto animate-fadeIn">
                   <div className="w-16 h-16 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center mx-auto ring-8 ring-emerald-50">
@@ -784,7 +914,9 @@ export const RegisterAppWizard: React.FC<RegisterAppWizardProps> = ({
             {step < 4 && (
               <button
                 onClick={() => setStep(step + 1)}
-                className="px-5 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold shadow-xs flex items-center gap-1.5 cursor-pointer"
+                disabled={step === 2 && !specAnalyzed}
+                title={step === 2 && !specAnalyzed ? 'Analyze the API specification first' : undefined}
+                className="px-5 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold shadow-xs flex items-center gap-1.5 cursor-pointer disabled:bg-slate-300 disabled:hover:bg-slate-300 disabled:cursor-not-allowed"
               >
                 <span>Continue</span>
                 <ArrowRight className="w-3.5 h-3.5" />
@@ -801,7 +933,16 @@ export const RegisterAppWizard: React.FC<RegisterAppWizardProps> = ({
               </button>
             )}
 
-            {step === 5 && !isGenerating && (
+            {step === 5 && !isGenerating && generateError && (
+              <button
+                onClick={() => setStep(4)}
+                className="px-6 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shadow-xs cursor-pointer"
+              >
+                Back & Retry
+              </button>
+            )}
+
+            {step === 5 && !isGenerating && !generateError && (
               <button
                 onClick={handleFinish}
                 className="px-6 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-xs cursor-pointer"

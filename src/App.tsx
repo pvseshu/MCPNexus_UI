@@ -1,16 +1,7 @@
-import React, { useState, useRef, Suspense, lazy } from 'react';
+import React, { useState, useRef, useEffect, Suspense, lazy } from 'react';
 import { CheckCircle2, X } from 'lucide-react';
-import {
-  INITIAL_APPLICATIONS,
-  INITIAL_MCP_SERVERS,
-  INITIAL_MCP_TOOLS,
-  INITIAL_ACCESS_REQUESTS,
-  INITIAL_KNOWLEDGE_SOURCES,
-  INITIAL_AUDIT_EVENTS,
-  INITIAL_AI_WORKFLOWS,
-  INITIAL_CONVERSATIONS,
-  INITIAL_USERS_ACCESS,
-} from './data/initialData';
+import { loadAppData } from './data/dataProvider';
+import { isDemoMode } from './utils/demoMode';
 import {
   NavSection,
   Application,
@@ -57,16 +48,40 @@ export default function App() {
   // Navigation State
   const [currentSection, setCurrentSection] = useState<NavSection>('dashboard');
 
-  // Core Data Collections
-  const [applications, setApplications] = useState<Application[]>(INITIAL_APPLICATIONS);
-  const [mcpServers, setMcpServers] = useState<McpServer[]>(INITIAL_MCP_SERVERS);
-  const [mcpTools, setMcpTools] = useState<McpTool[]>(INITIAL_MCP_TOOLS);
-  const [accessRequests, setAccessRequests] = useState<AccessRequest[]>(INITIAL_ACCESS_REQUESTS);
-  const [knowledgeSources, setKnowledgeSources] = useState<KnowledgeSource[]>(INITIAL_KNOWLEDGE_SOURCES);
-  const [auditEvents, setAuditEvents] = useState<AuditEvent[]>(INITIAL_AUDIT_EVENTS);
-  const [aiWorkflows, setAiWorkflows] = useState<AiWorkflow[]>(INITIAL_AI_WORKFLOWS);
-  const [conversations, setConversations] = useState<ConversationSession[]>(INITIAL_CONVERSATIONS);
-  const [usersAccess, setUsersAccess] = useState<UserAccessRecord[]>(INITIAL_USERS_ACCESS);
+  // Core Data Collections — populated from loadAppData() below. On /demo this
+  // always resolves to the static fixtures in data/initialData.ts; everywhere
+  // else it goes through the (currently stubbed) live fetchers in
+  // data/dataProvider.ts, so wiring up real APIs later never touches /demo.
+  const [applications, setApplications] = useState<Application[]>([]);
+  const [mcpServers, setMcpServers] = useState<McpServer[]>([]);
+  const [mcpTools, setMcpTools] = useState<McpTool[]>([]);
+  const [accessRequests, setAccessRequests] = useState<AccessRequest[]>([]);
+  const [knowledgeSources, setKnowledgeSources] = useState<KnowledgeSource[]>([]);
+  const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([]);
+  const [aiWorkflows, setAiWorkflows] = useState<AiWorkflow[]>([]);
+  const [conversations, setConversations] = useState<ConversationSession[]>([]);
+  const [usersAccess, setUsersAccess] = useState<UserAccessRecord[]>([]);
+  const [dataLoaded, setDataLoaded] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    loadAppData().then((data) => {
+      if (cancelled) return;
+      setApplications(data.applications);
+      setMcpServers(data.mcpServers);
+      setMcpTools(data.mcpTools);
+      setAccessRequests(data.accessRequests);
+      setKnowledgeSources(data.knowledgeSources);
+      setAuditEvents(data.auditEvents);
+      setAiWorkflows(data.aiWorkflows);
+      setConversations(data.conversations);
+      setUsersAccess(data.usersAccess);
+      setDataLoaded(true);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Modal & Detail States
   const [selectedAppForDetail, setSelectedAppForDetail] = useState<Application | null>(null);
@@ -272,6 +287,14 @@ export default function App() {
   };
 
   const pendingRequestsCount = accessRequests.filter((r) => r.status === 'Pending').length;
+
+  if (!dataLoaded) {
+    return (
+      <div className="flex h-screen w-screen items-center justify-center bg-slate-100 text-sm text-slate-500">
+        Loading{isDemoMode() ? ' demo' : ''} data…
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-slate-100 font-sans text-slate-900 antialiased" id="mcp-nexus-app">
