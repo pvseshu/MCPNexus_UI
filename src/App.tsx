@@ -671,6 +671,7 @@ export default function App() {
               onOpenAccessRequests={() => setCurrentSection('access-requests')}
               onOpenEmbedModal={() => setShowEmbedModal(true)}
               applications={applications}
+              mcpServers={mcpServers}
             />
           )}
 

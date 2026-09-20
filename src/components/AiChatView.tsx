@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import {
   Bot,
+  Cpu,
   Send,
   Sparkles,
   ChevronDown,
@@ -24,12 +25,15 @@ import {
   BookOpen,
   X,
 } from 'lucide-react';
-import { ChatMessage, DemoScenarioId, EnterpriseApplication } from '../types';
+import { sendChatMessage, CHAT_ERROR_MESSAGE } from '../api/chat';
+import { isDemoMode } from '../utils/demoMode';
+import { ChatMessage, DemoScenarioId, EnterpriseApplication, McpServer } from '../types';
 
 interface AiChatViewProps {
   onOpenAccessRequests?: () => void;
   onOpenEmbedModal?: () => void;
   applications?: EnterpriseApplication[];
+  mcpServers?: McpServer[];
 }
 
 // Minimal, dependency-free renderer for the "## heading" / "- bullet" / "**bold**"
@@ -97,11 +101,19 @@ export const AiChatView: React.FC<AiChatViewProps> = ({
   onOpenAccessRequests,
   onOpenEmbedModal,
   applications = [],
+  mcpServers = [],
 }) => {
   const [showAiSummaryModal, setShowAiSummaryModal] = useState(false);
   const iamApp = applications.find((a) => a.id === 'app-iam-sec');
   const aiSummaryConfig = iamApp?.aiSummaryConfig;
+  // /demo keeps the original scenario-driven chat; the regular app uses the MCP server picker.
+  const demo = isDemoMode();
+  // Outside /demo the assistant is branded with the MCP Nexus logo (same icon as the nav brand).
+  const BrandIcon = demo ? Bot : Cpu;
   const [selectedScenario, setSelectedScenario] = useState<DemoScenarioId>('scenario-1-success');
+  const [selectedServerId, setSelectedServerId] = useState('');
+  const selectableServers = mcpServers.filter((s) => s.status === 'Active');
+  const selectedServer = selectableServers.find((s) => s.id === selectedServerId);
   const [inputPrompt, setInputPrompt] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -119,6 +131,11 @@ export const AiChatView: React.FC<AiChatViewProps> = ({
   }, [messages, isProcessing]);
 
   // Load Scenario logic
+  // Demo replaces the conversation with the full scripted scenario; otherwise only the AI reply
+  // is appended so the user's own typed message is kept.
+  const setScenarioReply = (msgs: ChatMessage[]) =>
+    setMessages((prev) => (demo ? msgs : [...prev, ...msgs.filter((m) => m.sender === 'ai')]));
+
   const loadScenario = (scenarioId: DemoScenarioId) => {
     setSelectedScenario(scenarioId);
     setIsProcessing(true);
@@ -127,7 +144,7 @@ export const AiChatView: React.FC<AiChatViewProps> = ({
       setIsProcessing(false);
       switch (scenarioId) {
         case 'scenario-1-success':
-          setMessages([
+          setScenarioReply([
             {
               id: 'm-1',
               sender: 'user',
@@ -174,7 +191,7 @@ export const AiChatView: React.FC<AiChatViewProps> = ({
           break;
 
         case 'scenario-2-permission-denied':
-          setMessages([
+          setScenarioReply([
             {
               id: 'm-2-1',
               sender: 'user',
@@ -216,7 +233,7 @@ export const AiChatView: React.FC<AiChatViewProps> = ({
           break;
 
         case 'scenario-3-multi-orchestration':
-          setMessages([
+          setScenarioReply([
             {
               id: 'm-3-1',
               sender: 'user',
@@ -265,7 +282,7 @@ export const AiChatView: React.FC<AiChatViewProps> = ({
           break;
 
         case 'scenario-4-knowledge-search':
-          setMessages([
+          setScenarioReply([
             {
               id: 'm-4-1',
               sender: 'user',
@@ -301,7 +318,7 @@ export const AiChatView: React.FC<AiChatViewProps> = ({
           break;
 
         case 'scenario-5-not-integrated':
-          setMessages([
+          setScenarioReply([
             {
               id: 'm-5-1',
               sender: 'user',
@@ -334,7 +351,7 @@ export const AiChatView: React.FC<AiChatViewProps> = ({
           break;
 
         case 'scenario-6-combined-knowledge-mcp':
-          setMessages([
+          setScenarioReply([
             {
               id: 'm-6-1',
               sender: 'user',
@@ -379,12 +396,12 @@ export const AiChatView: React.FC<AiChatViewProps> = ({
   };
 
   useEffect(() => {
-    loadScenario('scenario-1-success');
+    if (demo) loadScenario('scenario-1-success');
   }, []);
 
-  const handleCustomSend = (e: React.FormEvent) => {
+  const handleCustomSend = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!inputPrompt.trim()) return;
+    if (!inputPrompt.trim() || (!demo && !selectedServer)) return;
 
     const userText = inputPrompt;
     setInputPrompt('');
@@ -398,6 +415,25 @@ export const AiChatView: React.FC<AiChatViewProps> = ({
 
     setMessages((prev) => [...prev, newMsg]);
     setIsProcessing(true);
+
+    if (!demo && selectedServer) {
+      // Real chat: wait for the API (spinner shows while isProcessing); a failure or a 2-minute
+      // timeout shows the default error message.
+      let aiText = CHAT_ERROR_MESSAGE;
+      let isError = true;
+      try {
+        aiText = (await sendChatMessage(userText, selectedServer)).reply;
+        isError = false;
+      } catch {
+        // keep the default error message
+      }
+      setMessages((prev) => [
+        ...prev,
+        { id: `ai-${Date.now()}`, sender: 'ai', text: aiText, timestamp: 'Just now', isError },
+      ]);
+      setIsProcessing(false);
+      return;
+    }
 
     setTimeout(() => {
       setIsProcessing(false);
@@ -463,24 +499,26 @@ export const AiChatView: React.FC<AiChatViewProps> = ({
 
   return (
     <div className="h-[calc(100vh-65px)] flex flex-col bg-slate-50 animate-fadeIn" id="ai-chat-view">
-      {/* Top Controls & Demo Scenario Selector */}
+      {/* Top Controls & MCP Server Picker */}
       <div className="bg-white border-b border-slate-200 px-6 py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-2xs">
         <div className="flex items-center gap-3">
           <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-indigo-600 to-purple-600 text-white flex items-center justify-center font-bold shadow-xs">
-            <Bot className="w-5 h-5" />
+            <BrandIcon className="w-5 h-5" />
           </div>
           <div>
             <div className="flex items-center gap-2">
               <h2 className="text-sm font-bold text-slate-900">MCP Nexus AI</h2>
               <span className="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 text-[10px] font-bold border border-emerald-200">
-                Connected to 24 MCPs + Knowledge
+                {demo
+                  ? 'Connected to 24 MCPs + Knowledge'
+                  : `Connected to ${selectableServers.length} ${selectableServers.length === 1 ? 'MCP' : 'MCPs'} + Knowledge`}
               </span>
             </div>
             <p className="text-[11px] text-slate-500">Autonomous Tool Orchestrator & Knowledge Assistant</p>
           </div>
         </div>
 
-        {/* Demo Scenarios Selector Dropdown & Embed Button */}
+        {/* MCP Server Picker & Embed Button */}
         <div className="flex items-center gap-3 flex-wrap">
           {aiSummaryConfig?.enabled && (
             <button
@@ -505,6 +543,7 @@ export const AiChatView: React.FC<AiChatViewProps> = ({
             </button>
           )}
 
+          {demo ? (
           <div className="flex items-center gap-2 bg-indigo-50/70 border border-indigo-200 rounded-xl px-3 py-1.5">
             <Sparkles className="w-4 h-4 text-indigo-600 flex-shrink-0" />
             <span className="text-xs font-bold text-indigo-950 whitespace-nowrap">Demo Scenario:</span>
@@ -522,6 +561,28 @@ export const AiChatView: React.FC<AiChatViewProps> = ({
               <option value="scenario-6-combined-knowledge-mcp">6. Combined Knowledge + MCP</option>
             </select>
           </div>
+          ) : (
+          <div className="flex items-center gap-2 bg-indigo-50/70 border border-indigo-200 rounded-xl px-3 py-1.5">
+            <Server className="w-4 h-4 text-indigo-600 flex-shrink-0" />
+            <span className="text-xs font-bold text-indigo-950 whitespace-nowrap">MCP Server:</span>
+            <select
+              value={selectedServerId}
+              onChange={(e) => {
+                setSelectedServerId(e.target.value);
+                setMessages([]);
+              }}
+              className="bg-white border border-indigo-200 rounded-lg px-2.5 py-1 text-xs font-semibold text-indigo-900 focus:ring-2 focus:ring-indigo-500 cursor-pointer shadow-2xs max-w-56"
+              id="chat-mcp-server-selector"
+            >
+              <option value="">Select an MCP server…</option>
+              {selectableServers.map((srv) => (
+                <option key={srv.id} value={srv.id}>
+                  {srv.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          )}
         </div>
       </div>
 
@@ -534,17 +595,19 @@ export const AiChatView: React.FC<AiChatViewProps> = ({
           >
             {msg.sender === 'ai' && (
               <div className="w-8 h-8 rounded-xl bg-indigo-600 text-white flex items-center justify-center flex-shrink-0 font-bold shadow-xs mt-0.5">
-                <Bot className="w-4 h-4" />
+                <BrandIcon className="w-4 h-4" />
               </div>
             )}
 
             <div className={`space-y-3 max-w-2xl ${msg.sender === 'user' ? 'items-end' : 'items-start'}`}>
               {/* Message Bubble */}
               <div
-                className={`p-4 rounded-2xl text-xs leading-relaxed shadow-xs ${
+                className={`p-4 rounded-2xl text-xs leading-relaxed shadow-xs whitespace-pre-wrap break-words ${
                   msg.sender === 'user'
                     ? 'bg-indigo-600 text-white rounded-br-xs font-medium'
-                    : 'bg-white text-slate-800 border border-slate-200 rounded-tl-xs'
+                    : msg.isError
+                      ? 'bg-red-50 text-red-800 border border-red-200 rounded-tl-xs'
+                      : 'bg-white text-slate-800 border border-slate-200 rounded-tl-xs'
                 }`}
               >
                 {msg.text}
@@ -856,14 +919,15 @@ export const AiChatView: React.FC<AiChatViewProps> = ({
             type="text"
             value={inputPrompt}
             onChange={(e) => setInputPrompt(e.target.value)}
-            placeholder="Ask about customer transactions, access policies, or type custom query..."
+            disabled={!demo && !selectedServer}
+            placeholder={demo ? 'Ask about customer transactions, access policies, or type custom query...' : selectedServer ? `Message ${selectedServer.name}...` : 'Select an MCP server to start chatting'}
             className="flex-1 px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all shadow-inner placeholder:text-slate-400"
             id="chat-input-prompt"
           />
 
           <button
             type="submit"
-            disabled={!inputPrompt.trim() || isProcessing}
+            disabled={(!demo && !selectedServer) || !inputPrompt.trim() || isProcessing}
             className="px-4 py-3 rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-bold text-xs shadow-xs flex items-center gap-2 cursor-pointer transition-colors"
             id="chat-send-btn"
           >

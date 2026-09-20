@@ -319,6 +319,7 @@ export interface ChatMessage {
   sender: 'user' | 'ai';
   text: string;
   timestamp: string;
+  isError?: boolean;
   actionsTaken?: {
     identifiedCustomer?: string;
     mcpServer?: string;
