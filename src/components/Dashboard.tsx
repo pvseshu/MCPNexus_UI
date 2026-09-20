@@ -22,9 +22,19 @@ import {
   FileCode,
   Lock,
 } from 'lucide-react';
-import { NavSection, AuditEvent, EnterpriseApplication, McpServer, McpTool, AccessRequest } from '../types';
+import { NavSection, AuditEvent, EnterpriseApplication, McpServer, McpTool, AccessRequest, KnowledgeSource } from '../types';
+import { DashboardSummary } from '../api/dashboard';
+
+const EMPTY_SUMMARY: DashboardSummary = {};
+
+// "2026-09-19T14:05:00Z" -> local date/time; anything that is not an ISO timestamp is shown as is.
+const formatTimestamp = (ts: string) =>
+  /^\d{4}-\d{2}-\d{2}T/.test(ts) && !Number.isNaN(Date.parse(ts)) ? new Date(ts).toLocaleString() : ts;
 
 interface DashboardProps {
+  knowledgeSources?: KnowledgeSource[];
+  // From GET /api/dashboard. Any missing block falls back to counting the local lists.
+  summary?: DashboardSummary;
   applications?: EnterpriseApplication[];
   mcpServers?: McpServer[];
   mcpTools?: McpTool[];
@@ -52,6 +62,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
   onOpenTransformation,
   pendingRequestsCount,
   recentAuditEvents = [],
+  knowledgeSources = [],
+  summary = EMPTY_SUMMARY,
 }) => {
   const [selectedDiagramNode, setSelectedDiagramNode] = useState<string | null>(null);
 
@@ -86,13 +98,25 @@ export const Dashboard: React.FC<DashboardProps> = ({
     }
   };
 
-  const aiReadyAppsCount = applications.filter((a) => a.isAiReady).length;
+  // Server numbers win; whatever the API did not return is counted from the local lists.
+  const appsTotal = summary.applications?.total ?? applications.length;
+  const aiReadyAppsCount = summary.applications?.aiReady ?? applications.filter((a) => a.isAiReady).length;
+  const serversTotal = summary.mcpServers?.total ?? mcpServers.length;
+  const healthyServers =
+    summary.mcpServers?.healthy ?? mcpServers.filter((s) => s.healthStatus === 'Healthy').length;
+  const toolsTotal = summary.mcpTools?.total ?? mcpTools.length;
+  const activeTools =
+    summary.mcpTools?.active ?? mcpTools.filter((t) => t.status === 'Active').length;
+  const knowledgeSourcesTotal = summary.knowledge?.sources ?? knowledgeSources.length;
+  const indexedDocs =
+    summary.knowledge?.indexedDocuments ?? knowledgeSources.reduce((sum, k) => sum + (k.indexedItemsCount || 0), 0);
+  const activity = (summary.recentActivity ?? recentAuditEvents).slice(0, 5);
 
   const kpis = [
     {
       id: 'kpi-applications',
       label: 'Enterprise Applications',
-      value: applications.length > 0 ? `${applications.length}` : '18',
+      value: `${appsTotal}`,
       sublabel: `${aiReadyAppsCount} AI-Ready via MCP`,
       icon: Compass,
       color: 'blue',
@@ -102,22 +126,25 @@ export const Dashboard: React.FC<DashboardProps> = ({
     {
       id: 'kpi-servers',
       label: 'MCP Servers',
-      value: mcpServers.length > 0 ? `${mcpServers.length}` : '24',
-      sublabel: `${applications.length} Registered Applications`,
+      value: `${serversTotal}`,
+      sublabel: `${appsTotal} Registered Applications`,
       icon: Server,
       color: 'indigo',
       section: 'mcp-servers' as NavSection,
-      trend: '100% healthy status',
+      trend:
+        serversTotal > 0
+          ? `${Math.round((healthyServers / serversTotal) * 100)}% healthy status`
+          : 'No servers registered',
     },
     {
       id: 'kpi-tools',
       label: 'MCP Tools',
-      value: mcpTools.length > 0 ? `${mcpTools.length}` : '186',
+      value: `${toolsTotal}`,
       sublabel: 'AI-Ready Capabilities',
       icon: Wrench,
       color: 'purple',
       section: 'mcp-tools' as NavSection,
-      trend: '94% AI context configured',
+      trend: `${activeTools} active`,
     },
     {
       id: 'kpi-requests',
@@ -133,8 +160,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
     {
       id: 'kpi-knowledge',
       label: 'Knowledge Sources',
-      value: '1,284',
-      sublabel: '24,582 Indexed Docs',
+      value: knowledgeSourcesTotal.toLocaleString(),
+      sublabel: `${indexedDocs.toLocaleString()} Indexed Docs`,
       icon: Database,
       color: 'teal',
       section: 'knowledge-hub' as NavSection,
@@ -165,7 +192,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
             className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 text-sm font-medium shadow-xs transition-all cursor-pointer"
           >
             <Plus className="w-4 h-4 text-slate-500" />
-            <span>+ Add Knowledge Source</span>
+            <span>Add Knowledge Source</span>
           </button>
 
           <button
@@ -174,7 +201,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
             className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold shadow-sm shadow-indigo-200 transition-all cursor-pointer"
           >
             <Plus className="w-4 h-4" />
-            <span>+ Register Application</span>
+            <span>Register Application</span>
           </button>
         </div>
       </div>
@@ -299,7 +326,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 </div>
                 <div>
                   <h4 className="text-xs font-bold text-slate-900 group-hover:text-indigo-700">Applications &amp; MCP Servers</h4>
-                  <span className="text-[10px] text-slate-500">{applications.length} Apps ➔ {mcpServers.length} Servers</span>
+                  <span className="text-[10px] text-slate-500">{appsTotal} Apps ➔ {serversTotal} Servers</span>
                 </div>
               </div>
               <p className="text-[11px] text-slate-600 leading-tight">
@@ -307,7 +334,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
               </p>
               <div className="mt-2.5 flex items-center gap-1 text-[10px] font-semibold text-indigo-700">
                 <Server className="w-3 h-3" />
-                <span>{mcpTools.length} MCP Tools</span>
+                <span>{toolsTotal} MCP Tools</span>
               </div>
             </div>
 
@@ -379,7 +406,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
               <div>
                 <h4 className="text-xs font-bold text-slate-900">Knowledge Hub Branch</h4>
                 <p className="text-[11px] text-slate-500">
-                  1,284 Sources (PDFs, Wikis, SOPs) ➔ Grounded directly into AI Agent alongside live MCP Actions
+                  {knowledgeSourcesTotal.toLocaleString()} Sources (PDFs, Wikis, SOPs) ➔ Grounded directly into AI Agent alongside live MCP Actions
                 </p>
               </div>
             </div>
@@ -413,7 +440,10 @@ export const Dashboard: React.FC<DashboardProps> = ({
           </div>
 
           <div className="divide-y divide-slate-100 mt-2">
-            {(recentAuditEvents || []).slice(0, 5).map((evt) => (
+            {activity.length === 0 && (
+              <p className="py-6 text-center text-xs text-slate-400">No recent activity</p>
+            )}
+            {activity.map((evt) => (
               <div key={evt.id} className="py-3 flex items-start justify-between gap-4 hover:bg-slate-50/50 px-2 rounded-lg transition-colors">
                 <div className="flex items-start gap-3 min-w-0">
                   <div
@@ -445,7 +475,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                     <p className="text-[11px] text-slate-500 truncate mt-0.5">{evt.details}</p>
                     <span className="text-[10px] text-slate-400 flex items-center gap-1 mt-0.5">
                       <Clock className="w-2.5 h-2.5" />
-                      {evt.timestamp} • {evt.actor || evt.userOrApp || 'System'}
+                      {formatTimestamp(evt.timestamp)} •{evt.actor || evt.userOrApp || 'System'}
                     </span>
                   </div>
                 </div>

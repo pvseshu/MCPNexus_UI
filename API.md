@@ -93,7 +93,7 @@ Used in the wizard's final "Generate MCP Server" step. This is the **only** step
 
 **POST** `/api/app-registration/generate`
 
-**Tables touched:** `projects_project` (application + AI context + MCP server fields), `api_registry_api` (one row per swagger URL), `tools_tool` and `tools_toolparameter` (one row per selected API / its params). All database writes happen in one transaction: if anything fails, nothing is saved.
+**Tables touched:** `projects_project` (application + AI context + MCP server fields), `api_registry_api` (one row per swagger URL), `tools_tool` and `tools_toolparameter` (one row per discovered API / its params: the selected ones with status `active`, all the others with status `disabled`). All database writes happen in one transaction: if anything fails, nothing is saved.
 
 **Vector DB (best effort):** after the database writes, the project text (name, description, AI context) and each tool's text (name, display name, summary, description) are embedded through Ollama and upserted into Qdrant, into the `QDRANT_PROJECTS_COLLECTION` (default `mcp_projects`) and `QDRANT_TOOLS_COLLECTION` (default `mcp_tools`) collections. The point id is the database id of the project / tool. If Ollama or Qdrant is unreachable, indexing is skipped with a warning and the request still succeeds, so the app is saved but not yet searchable.
 
@@ -207,7 +207,7 @@ The server re-reads the swagger spec(s) when generating, so the client only need
 - If the request body is not an object (e.g. an array), it is stored as a single `body` parameter.
 - `$ref`s in the body and response schemas are inlined so each stored schema is self-contained. Nesting is expanded to 5 levels; circular references and anything deeper are replaced by a stub such as `{ "type": "object", "description": "(reference to Track not expanded)" }`.
 - Swagger 2 specs are handled too: an `in: body` parameter becomes `request_schema`, and a response `schema` becomes `response_schema`.
-- Re-running generate for the same `appCode` updates the existing project, and for the same `toolName` updates the existing tool and replaces that tool's parameter rows. Tools saved by an earlier run that are **not** in the new `selectedApis` are left as they are; they are not deleted.
+- Re-running generate for the same `appCode` updates the existing project, and for the same `toolName` updates the existing tool and replaces that tool's parameter rows. Tools saved by an earlier run that are **not** in the new `selectedApis` are left as they are; they are not deleted. Every discovered API that is not selected is also saved, as a `disabled` tool named after its `suggestedToolName` (a `_2`, `_3` suffix is added on a name clash), so API Discovery can list all of them and a user can enable one later without re-analyzing the spec. An endpoint (method + path) that is already saved is never touched by this, so a re-run cannot disable something that was enabled since. Only the active tools are indexed for search.
 - `mcpServer.endpointUrl` is `MCP_SERVER_BASE_URL` (server setting) + `/` + the lower-cased `appCode`.
 
 **Application identifiers**
@@ -476,25 +476,27 @@ Used by the "Listed in MCP Catalog" / "Not enabled for Catalog (Private)" button
 
 ## 7. Get Navigation Counts
 
-The side menu shows a badge next to some items (MCP Servers, MCP Tools, Access Requests). One lightweight endpoint returns all of them, so the menu needs one call on load instead of one per item, and it does not have to load the full lists just to count them.
+The side menu shows a badge next to some items (MCP Servers, MCP Tools, API Discovery, MCP Catalog, Access Requests). One lightweight endpoint returns all of them, so the menu needs one call on load instead of one per item, and it does not have to load the full lists just to count them.
 
 **GET** `/api/navigation/counts`
 
-**Tables touched:** read-only; `COUNT(*)` queries only (`projects_project`, `tools_tool`, access requests).
+**Tables touched:** read-only; `COUNT(*)` queries only: `projects_project` (`mcpServers`, `apiDiscovery`, and `mcpCatalog` via `is_published_to_catalog = true`), `tools_tool` (`mcpTools` = `status = 'active'`, `apiDiscovery` = all rows), `auth_governance_accessrequest` (`pendingAccessRequests`, `status = 'pending'`).
 
 **Output**
 ```json
 {
   "mcpServers": 5,
   "mcpTools": 42,
+  "apiDiscovery": 5,
+  "mcpCatalog": 3,
   "pendingAccessRequests": 3
 }
 ```
 
 - Keys are the menu item ids in camelCase. To add a badge for another menu item later, add a key here; no new endpoint.
-- `mcpServers` is all registered servers (same number as `servers.length` from section 3). `mcpTools` is all tools across servers. `pendingAccessRequests` counts requests waiting for a decision.
+- `mcpServers` is all registered servers (same number as `servers.length` from section 3). `mcpTools` is the number of enabled tools across servers (`status = 'active'`). `apiDiscovery` is every stored endpoint, enabled or not (`tools_tool` row count). `mcpCatalog` is the number of servers published to the catalog (`isPublishedToCatalog = true`, section 6). `pendingAccessRequests` counts requests waiting for a decision.
 - A missing key means the client shows no badge for that item.
-- Refresh after Generate MCP Server (section 2), an access request decision, or on a timer if the menu should stay current. The client can also bump the local number after its own actions without calling again.
+- Refresh after Generate MCP Server (section 2), a catalog visibility change (section 6), an access request decision, or on a timer if the menu should stay current. The client can also bump the local number after its own actions without calling again.
 - Not covered: the static "1.2k" badge on Knowledge Hub is hard-coded in the UI today. Add e.g. `knowledgeDocuments` here when that page gets real data.
 - On `/demo` this endpoint is never called; the counts come from the static data.
 
@@ -605,6 +607,50 @@ Used by the **Run Test** button in the "Interactive MCP Tool Execution Sandbox" 
 - The client should set a timeout a little above the server's 30s upstream limit, and keep the Run Test button in its "Executing Tool..." state until the response arrives.
 - On `/demo` this endpoint is never called; the popup keeps returning its canned response.
 
+---
+
+# Dashboard page
+
+## 10. Get Dashboard Summary
+
+Feeds everything on the Dashboard that is hard-coded today: the five KPI cards, the "Apps ➔ Servers / N MCP Tools" line in the architecture diagram, the Knowledge Hub branch text, and the "Recent Platform Activity & Governance" list. One call on page load.
+
+**Why a new endpoint:** the existing ones cover only part of it. Section 3 (`/api/mcp-servers`) and section 8 (`/api/mcp-tools`) return full lists, which is too heavy just to show counts, and section 7 (`/api/navigation/counts`) has no AI-ready or health numbers, no knowledge numbers and no activity. Rather than add a call per card, this is the single dashboard endpoint. The other dashboard bits (quick-launch scenarios, architecture text) are static UI copy and need no API.
+
+**GET** `/api/dashboard`
+
+**Tables touched:** read-only; `COUNT(*)` / `GROUP BY` queries only, no full lists are loaded. `projects_project` (`applications.total`, `applications.aiReady` via `is_ai_ready`, and `mcpServers` counts grouped by `mcp_health_status`), `tools_tool` (`mcpTools.total`, and `mcpTools.active` via `status = 'active'`), `auth_governance_accessrequest` (`pendingAccessRequests`, `status = 'pending'`). Knowledge sources and audit events have no tables yet, so `knowledge` and `recentActivity` are not backed by any table today.
+
+**Output**
+```json
+{
+  "applications": { "total": 5, "aiReady": 4 },
+  "mcpServers": { "total": 5, "healthy": 4, "degraded": 1, "offline": 0 },
+  "mcpTools": { "total": 42, "active": 39 },
+  "pendingAccessRequests": 3,
+  "knowledge": { "sources": 1284, "indexedDocuments": 24582 },
+  "recentActivity": [
+    {
+      "id": "evt-101",
+      "timestamp": "2026-09-19T14:05:00Z",
+      "action": "Tool Call: getCustomerTransactions",
+      "actor": "Case Management",
+      "mcpServer": "Customer Transaction Portal MCP",
+      "details": "Returned 3 transactions for customer C12345",
+      "status": "SUCCESS"
+    }
+  ]
+}
+```
+
+- Card mapping: Enterprise Applications = `applications.total` with "`aiReady` AI-Ready via MCP"; MCP Servers = `mcpServers.total`, and its trend line is built on the client from the health counts (e.g. "100% healthy" = `healthy / total`); MCP Tools = `mcpTools.total`; Pending Access Requests = `pendingAccessRequests`; Knowledge Sources = `knowledge.sources` with "`indexedDocuments` Indexed Docs".
+- `applications.total` and `mcpServers.total` are the same number for now (one application = one MCP server, see the section 3 intro); they are kept separate so the two cards do not have to assume it.
+- `mcpTools.total` and `mcpTools.active` are both the enabled tools (`status = 'active'`), the same number as `mcpTools` in section 7; disabled rows are discovered endpoints that were never enabled, and are not MCP tools yet.
+- `recentActivity` is the 5 most recent audit events, newest first. It is not paginated; the full list belongs to the Audit page ("View Full Audit Log"), which will get its own list endpoint when that page gets real data. `status`: `SUCCESS` | `DENIED` | `CONFIG_UPDATED` | other values are shown with a neutral style. `timestamp` is ISO; the client formats it.
+- **Partial data is fine.** Every block and every field is optional. The backend may leave out anything it cannot provide yet (today that is `knowledge` and `recentActivity`, which have no tables) or the whole call may fail. The client then falls back per value to what it counts from the lists it already loaded (same idea as section 7): `applications` / `mcpServers` / `mcpTools` from the loaded lists, `pendingAccessRequests` from section 7, `knowledge` from the knowledge source list and `recentActivity` from the audit list. An empty `recentActivity: []` is a real answer and shows "No recent activity".
+- The old "94% AI context configured" card text is dropped because no such number is stored; the tools card shows "N active" instead.
+- On `/demo` this endpoint is never called; the dashboard uses the static data.
+
 ## Summary
 
 | # | Method | Path | Used by |
@@ -618,3 +664,4 @@ Used by the **Run Test** button in the "Interactive MCP Tool Execution Sandbox" 
 | 7 | GET | `/api/navigation/counts` | Side menu badges |
 | 8 | GET | `/api/mcp-tools` | MCP Tools page: tool cards |
 | 9 | POST | `/api/mcp-tools/{id}/execute` | MCP Tools page: Run Test in the execution sandbox popup |
+| 10 | GET | `/api/dashboard` | Dashboard: KPI cards, knowledge line, recent activity |

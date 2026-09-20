@@ -3,6 +3,7 @@ import { CheckCircle2, X } from 'lucide-react';
 import { loadAppData } from './data/dataProvider';
 import { isDemoMode } from './utils/demoMode';
 import { fetchNavigationCounts, NavigationCounts } from './api/navigation';
+import { fetchDashboardSummary, DashboardSummary } from './api/dashboard';
 import { fetchMcpServerDetail, setCatalogVisibility, updateMcpServer, McpServerPatch } from './api/mcpServers';
 import {
   NavSection,
@@ -95,6 +96,16 @@ export default function App() {
       .catch((err) => console.warn('Could not load navigation counts; using local counts.', err));
   };
   useEffect(refreshNavCounts, []);
+
+  // Dashboard numbers from GET /api/dashboard. Never called on /demo. The backend may return
+  // only some blocks (or fail), and the Dashboard falls back to local data for whatever is missing.
+  const [dashboardSummary, setDashboardSummary] = useState<DashboardSummary>({});
+  useEffect(() => {
+    if (isDemoMode()) return;
+    fetchDashboardSummary()
+      .then(setDashboardSummary)
+      .catch((err) => console.warn('Could not load dashboard summary; using local data.', err));
+  }, []);
 
   // Modal & Detail States
   const [selectedAppForDetail, setSelectedAppForDetail] = useState<Application | null>(null);
@@ -254,6 +265,7 @@ export default function App() {
     if (!isDemoMode()) {
       try {
         published = (await setCatalogVisibility(serverId, wanted)).isPublishedToCatalog;
+        refreshNavCounts();
       } catch (err) {
         showGlobalToast(
           'Catalog Update Failed',
@@ -423,6 +435,8 @@ export default function App() {
         pendingRequestsCount={pendingRequestsCount}
         mcpServersCount={navCounts.mcpServers ?? mcpServers.length}
         mcpToolsCount={navCounts.mcpTools ?? mcpTools.length}
+        apiDiscoveryCount={navCounts.apiDiscovery ?? applications.length}
+        mcpCatalogCount={navCounts.mcpCatalog ?? mcpServers.filter((s) => s.isPublishedToCatalog).length}
       />
 
       {/* Main Content Area */}
@@ -455,7 +469,11 @@ export default function App() {
               mcpTools={mcpTools}
               accessRequests={accessRequests}
               recentAuditEvents={auditEvents}
-              pendingRequestsCount={pendingRequestsCount}
+              knowledgeSources={knowledgeSources}
+              summary={dashboardSummary}
+              pendingRequestsCount={
+                dashboardSummary.pendingAccessRequests ?? navCounts.pendingAccessRequests ?? pendingRequestsCount
+              }
               onNavigate={(sec) => setCurrentSection(sec)}
               onOpenRegisterWizard={() => setShowRegisterWizard(true)}
               onRegisterAppClick={() => setShowRegisterWizard(true)}

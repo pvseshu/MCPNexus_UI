@@ -33,6 +33,8 @@ interface NavigationProps {
   pendingAccessRequestsCount?: number;
   mcpServersCount?: number;
   mcpToolsCount?: number;
+  apiDiscoveryCount?: number;
+  mcpCatalogCount?: number;
 }
 
 const DEFAULT_SIDEBAR_WIDTH = 290;
@@ -50,6 +52,8 @@ export const Navigation: React.FC<NavigationProps> = ({
   pendingAccessRequestsCount,
   mcpServersCount,
   mcpToolsCount,
+  apiDiscoveryCount,
+  mcpCatalogCount,
 }) => {
   // Local collapsed state fallback if not controlled from parent
   const [internalCollapsed, setInternalCollapsed] = useState<boolean>(() => {
@@ -194,8 +198,8 @@ export const Navigation: React.FC<NavigationProps> = ({
       items: [
         { id: 'mcp-servers' as NavSection, label: 'MCP Servers', icon: Server, badge: mcpServersCount !== undefined ? `${mcpServersCount}` : undefined },
         { id: 'mcp-tools' as NavSection, label: 'MCP Tools', icon: Wrench, badge: mcpToolsCount !== undefined ? `${mcpToolsCount}` : undefined },
-        { id: 'api-discovery' as NavSection, label: 'API Discovery', icon: Compass },
-        { id: 'mcp-catalog' as NavSection, label: 'MCP Catalog', icon: Layers },
+        { id: 'api-discovery' as NavSection, label: 'API Discovery', icon: Compass, badge: apiDiscoveryCount !== undefined ? `${apiDiscoveryCount}` : undefined },
+        { id: 'mcp-catalog' as NavSection, label: 'MCP Catalog', icon: Layers, badge: mcpCatalogCount !== undefined ? `${mcpCatalogCount}` : undefined },
         {
           id: 'access-requests' as NavSection,
           label: 'Access Requests',

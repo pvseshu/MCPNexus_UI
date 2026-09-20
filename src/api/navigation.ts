@@ -6,10 +6,18 @@ import { apiUrl } from '../utils/apiConfig';
 export interface NavigationCounts {
   mcpServers?: number;
   mcpTools?: number;
+  apiDiscovery?: number;
+  mcpCatalog?: number;
   pendingAccessRequests?: number;
 }
 
-const COUNT_KEYS: (keyof NavigationCounts)[] = ['mcpServers', 'mcpTools', 'pendingAccessRequests'];
+const COUNT_KEYS: (keyof NavigationCounts)[] = [
+  'mcpServers',
+  'mcpTools',
+  'apiDiscovery',
+  'mcpCatalog',
+  'pendingAccessRequests',
+];
 
 export async function fetchNavigationCounts(): Promise<NavigationCounts> {
   const res = await fetch(apiUrl('/api/navigation/counts'));
