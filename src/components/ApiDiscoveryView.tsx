@@ -14,27 +14,26 @@ import {
   Sliders,
   FileCode,
 } from 'lucide-react';
-import { EnterpriseApplication, DiscoveredApi } from '../types';
+import { DiscoveredEndpoint } from '../api/apiDiscovery';
 
 interface ApiDiscoveryViewProps {
-  applications?: EnterpriseApplication[];
-  onOpenAppDetail?: (app: EnterpriseApplication) => void;
-  onTransformApp?: (app: EnterpriseApplication) => void;
+  // One row per stored endpoint, enabled or not (API.md section 12).
+  endpoints?: DiscoveredEndpoint[];
+  isLoading?: boolean;
+  error?: string | null;
+  onInspectEndpoint?: (endpoint: DiscoveredEndpoint) => void;
   onOpenRegisterWizard?: () => void;
   onRegisterNew?: () => void;
 }
 
 export const ApiDiscoveryView: React.FC<ApiDiscoveryViewProps> = ({
-  applications = [],
-  onOpenAppDetail,
-  onTransformApp,
+  endpoints = [],
+  isLoading = false,
+  error = null,
+  onInspectEndpoint,
   onOpenRegisterWizard,
   onRegisterNew,
 }) => {
-  const handleOpenDetail = (app: EnterpriseApplication) => {
-    if (onTransformApp) onTransformApp(app);
-    else if (onOpenAppDetail) onOpenAppDetail(app);
-  };
 
   const handleOpenRegister = () => {
     if (onRegisterNew) onRegisterNew();
@@ -46,30 +45,27 @@ export const ApiDiscoveryView: React.FC<ApiDiscoveryViewProps> = ({
   const [selectedMethodFilter, setSelectedMethodFilter] = useState('ALL');
   const [onlyAiReady, setOnlyAiReady] = useState(false);
 
-  // Flatten discovered APIs from all applications
-  const allDiscoveredApis: { app: EnterpriseApplication; api: DiscoveredApi }[] = [];
-  (applications || []).forEach((app) => {
-    (app.apis || []).forEach((api) => {
-      allDiscoveredApis.push({ app, api });
-    });
-  });
-
-  const filtered = allDiscoveredApis.filter(({ app, api }) => {
+  const term = searchTerm.toLowerCase();
+  const filtered = endpoints.filter((api) => {
     const matchesSearch =
-      api.endpoint.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      api.summary.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      api.suggestedToolName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      app.name.toLowerCase().includes(searchTerm.toLowerCase());
+      api.endpoint.toLowerCase().includes(term) ||
+      api.summary.toLowerCase().includes(term) ||
+      api.suggestedToolName.toLowerCase().includes(term) ||
+      api.applicationName.toLowerCase().includes(term);
 
-    const matchesApp = selectedAppFilter === 'ALL' || app.id === selectedAppFilter;
+    const matchesApp = selectedAppFilter === 'ALL' || api.applicationId === selectedAppFilter;
     const matchesMethod = selectedMethodFilter === 'ALL' || api.method === selectedMethodFilter;
     const matchesAiReady = !onlyAiReady || api.enabledForMcp;
 
     return matchesSearch && matchesApp && matchesMethod && matchesAiReady;
   });
 
-  const totalApisCount = applications.reduce((acc, a) => acc + (a.endpointsCount || a.apis?.length || 0), 0);
-  const mcpEnabledApisCount = allDiscoveredApis.filter(({ api }) => api.enabledForMcp).length;
+  // Stat cards and the application dropdown are worked out from the list itself.
+  const totalApisCount = endpoints.length;
+  const mcpEnabledApisCount = endpoints.filter((api) => api.enabledForMcp).length;
+  const applications = Array.from(
+    new Map(endpoints.map((api) => [api.applicationId, api.applicationName])).entries()
+  ).map(([id, name]) => ({ id, name }));
 
   const getMethodBadgeClass = (method: string) => {
     switch (method) {
@@ -209,8 +205,8 @@ export const ApiDiscoveryView: React.FC<ApiDiscoveryViewProps> = ({
         </div>
 
         <div className="divide-y divide-slate-100">
-          {filtered.map(({ app, api }) => (
-            <div key={`${app.id}-${api.id}`} className="p-5 hover:bg-slate-50/70 transition-colors flex flex-col md:flex-row md:items-center justify-between gap-4">
+          {filtered.map((api) => (
+            <div key={api.id} className="p-5 hover:bg-slate-50/70 transition-colors flex flex-col md:flex-row md:items-center justify-between gap-4">
               <div className="space-y-1.5 min-w-0 flex-1">
                 <div className="flex items-center gap-2.5 flex-wrap">
                   <span className={`px-2 py-0.5 rounded text-xs font-mono font-bold border ${getMethodBadgeClass(api.method)}`}>
@@ -219,14 +215,25 @@ export const ApiDiscoveryView: React.FC<ApiDiscoveryViewProps> = ({
                   <span className="font-mono text-sm font-semibold text-slate-900 truncate">
                     {api.endpoint}
                   </span>
-                  {api.enabledForMcp && (
-                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200">
-                      <Sparkles className="w-3 h-3 text-indigo-600" />
-                      <span>Tool: {api.suggestedToolName}</span>
+                  {api.enabledForMcp ? (
+                    <>
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                        <CheckCircle2 className="w-3 h-3" />
+                        <span>Active</span>
+                      </span>
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200">
+                        <Sparkles className="w-3 h-3 text-indigo-600" />
+                        <span>Tool: {api.suggestedToolName}</span>
+                      </span>
+                    </>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-slate-100 text-slate-600 border border-slate-200">
+                      <AlertCircle className="w-3 h-3" />
+                      <span>Not Active</span>
                     </span>
                   )}
                   <span className="text-xs px-2 py-0.5 rounded bg-slate-100 text-slate-600 font-medium">
-                    {app.name}
+                    {api.applicationName}
                   </span>
                 </div>
 
@@ -235,15 +242,15 @@ export const ApiDiscoveryView: React.FC<ApiDiscoveryViewProps> = ({
                 <div className="flex items-center gap-4 text-[11px] text-slate-400 font-mono pt-1">
                   <span>Tag: {api.tag || 'General'}</span>
                   <span>•</span>
-                  <span>{api.parameters?.length || 0} Parameters</span>
+                  <span>{api.parametersCount} Parameters</span>
                   <span>•</span>
-                  <span>Server: {app.mcpServerName}</span>
+                  <span>Server: {api.serverName}</span>
                 </div>
               </div>
 
               <div className="flex items-center gap-2 flex-shrink-0">
                 <button
-                  onClick={() => handleOpenDetail(app)}
+                  onClick={() => onInspectEndpoint?.(api)}
                   className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-semibold transition-colors cursor-pointer"
                 >
                   <span>Inspect MCP Tool</span>
@@ -253,7 +260,17 @@ export const ApiDiscoveryView: React.FC<ApiDiscoveryViewProps> = ({
             </div>
           ))}
 
-          {filtered.length === 0 && (
+          {error && (
+            <div className="p-6 text-center text-sm text-red-600" role="alert">
+              {error}
+            </div>
+          )}
+
+          {isLoading && endpoints.length === 0 && !error && (
+            <div className="p-12 text-center text-sm text-slate-500">Loading endpoints…</div>
+          )}
+
+          {filtered.length === 0 && !isLoading && !error && (
             <div className="p-12 text-center text-slate-500">
               <Compass className="w-8 h-8 mx-auto text-slate-400 mb-2 opacity-60" />
               <p className="text-sm font-semibold text-slate-700">No matching API endpoints found</p>

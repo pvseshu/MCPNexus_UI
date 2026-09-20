@@ -4,6 +4,11 @@ import { loadAppData } from './data/dataProvider';
 import { isDemoMode } from './utils/demoMode';
 import { fetchNavigationCounts, NavigationCounts } from './api/navigation';
 import { fetchDashboardSummary, DashboardSummary } from './api/dashboard';
+import {
+  fetchDiscoveredEndpoints,
+  endpointsFromApplications,
+  DiscoveredEndpoint,
+} from './api/apiDiscovery';
 import { fetchMcpToolDetail, updateMcpTool, toApiSamples } from './api/mcpTools';
 import { fetchMcpServerDetail, setCatalogVisibility, updateMcpServer, McpServerPatch } from './api/mcpServers';
 import {
@@ -304,6 +309,44 @@ export default function App() {
     }
   };
 
+  // API Discovery page: GET /api/api-discovery, loaded each time the page is opened so the
+  // enabled / not active state is current. On /demo the rows come from the static applications.
+  const [discoveredEndpoints, setDiscoveredEndpoints] = useState<DiscoveredEndpoint[]>([]);
+  const [discoveryLoading, setDiscoveryLoading] = useState(false);
+  const [discoveryError, setDiscoveryError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (currentSection !== 'api-discovery' || isDemoMode()) return;
+    let cancelled = false;
+    setDiscoveryLoading(true);
+    setDiscoveryError(null);
+    fetchDiscoveredEndpoints()
+      .then((rows) => !cancelled && setDiscoveredEndpoints(rows))
+      .catch((err) => !cancelled && setDiscoveryError(err instanceof Error ? err.message : 'Could not load endpoints.'))
+      .finally(() => !cancelled && setDiscoveryLoading(false));
+    return () => {
+      cancelled = true;
+    };
+  }, [currentSection]);
+
+  // "Inspect MCP Tool": live rows open the application detail through their server id
+  // (GET /api/mcp-servers/{id}); demo rows match a static application.
+  const handleInspectEndpoint = async (endpoint: DiscoveredEndpoint) => {
+    if (isDemoMode()) {
+      const app = applications.find((a) => a.id === endpoint.applicationId);
+      if (app) setSelectedAppForDetail(app);
+      return;
+    }
+    try {
+      setSelectedAppForDetail(await fetchMcpServerDetail(endpoint.serverId));
+    } catch (err) {
+      showGlobalToast(
+        'Could Not Load MCP Server',
+        err instanceof Error ? err.message : `Could not load details for ${endpoint.serverName}.`
+      );
+    }
+  };
+
   // Handlers for Registration Wizard completion
   const handleCompleteRegisterApp = (newApp: Application, generatedServer: McpServer, generatedTools: McpTool[]) => {
     setApplications((prev) => [newApp, ...prev]);
@@ -564,8 +607,10 @@ export default function App() {
 
           {currentSection === 'api-discovery' && (
             <ApiDiscoveryView
-              applications={applications}
-              onTransformApp={(app) => setSelectedAppForDetail(app)}
+              endpoints={isDemoMode() ? endpointsFromApplications(applications) : discoveredEndpoints}
+              isLoading={discoveryLoading}
+              error={discoveryError}
+              onInspectEndpoint={handleInspectEndpoint}
               onRegisterNew={() => setShowRegisterWizard(true)}
             />
           )}

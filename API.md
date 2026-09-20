@@ -728,7 +728,7 @@ The **Save Configuration** button of the "Configure Tool" popup, and also the wa
 - **Samples are replaced as a whole list.** Send the complete `sampleInputs` / `sampleOutputs` array that should exist after the save; a sample left out is deleted, and `[]` clears the list. Existing samples keep their `id`; a new sample is sent **without** an `id` and gets one in the response. "Save as Sample ..." from the Test Tool popup does the same: take the tool's current list (section 10), add the new item and send the full list.
 - Validation: `description` cannot be blank (the popup marks it required). `requiredPermission` may be blank, but then the governance layer has nothing to check, so the UI should warn. `whenToUse` / `whenNotToUse` / `callSequence` may be blank. Each sample needs a `name` and a `payload` that is a JSON object; `description` is optional; `type` must be one of the values in section 10 (a missing input type is stored as `success`, a missing output type as `success`).
 - **Enable / disable:** `status` accepts only `Active` or `Disabled` (stored as `active` / `disabled`). `Needs Configuration` cannot be sent: it is not a stored status, only how section 8 shows an enabled tool that is not fully configured. Sending the current value again is safe. The response `status` is the same as in section 10, so an enabled tool may come back as `Needs Configuration`.
-  - **Disabled** removes the tool from the MCP Tools list (section 8) and from the section 7 / section 12 tool counts, its vector is removed from Qdrant, and Run Test (section 9) answers `409`. Its saved configuration (samples, guidance, description) is kept, so nothing is lost when it is enabled again.
+  - **Disabled** removes the tool from the MCP Tools list (section 8) and from the section 7 / section 13 tool counts (it stays in the section 12 list, shown as not enabled), its vector is removed from Qdrant, and Run Test (section 9) answers `409`. Its saved configuration (samples, guidance, description) is kept, so nothing is lost when it is enabled again.
   - **Active** puts it back in the list and counts, and it is embedded into Qdrant again (best effort, same as section 2).
   - The PATCH still returns `200` with the tool after it is disabled, even though the list no longer contains it. The client should drop it from the MCP Tools list, and refresh the section 7 counts.
   - A tool can be enabled even if its MCP server is `Disabled` / `Maintenance`; it just cannot be executed until the server is active again (section 9 `409`).
@@ -740,9 +740,70 @@ The **Save Configuration** button of the "Configure Tool" popup, and also the wa
 
 ---
 
+# API Discovery page
+
+## 12. List Discovered Endpoints
+
+Feeds the whole API Discovery page: the "Discovered REST Endpoints (N)" list, the three stat cards, and the application dropdown. One call on page load. The page needs no other API to display.
+
+**GET** `/api/api-discovery`
+
+**Tables touched:** read-only: `tools_tool` (every row, enabled or not), `tools_toolparameter` (parameter count only), `projects_project` (application and server names).
+
+**Output**
+```json
+{
+  "endpoints": [
+    {
+      "id": "tool-1",
+      "endpoint": "/customers/{customerId}/transactions",
+      "method": "GET",
+      "summary": "Get Customer Transactions",
+      "description": "Fetches chronological transaction records for a customer with optional date range filters.",
+      "tag": "Transactions",
+      "suggestedToolName": "getCustomerTransactions",
+      "enabledForMcp": true,
+      "parametersCount": 2,
+      "applicationId": "1",
+      "applicationName": "Customer Transaction Portal",
+      "serverId": "mcp-1",
+      "serverName": "Customer Transaction Portal MCP"
+    },
+    {
+      "id": "tool-7",
+      "endpoint": "/customers/{customerId}/statements",
+      "method": "GET",
+      "summary": "Get Customer Statements",
+      "description": "Lists monthly statements for a customer.",
+      "tag": "Statements",
+      "suggestedToolName": "getCustomerStatements",
+      "enabledForMcp": false,
+      "parametersCount": 1,
+      "applicationId": "1",
+      "applicationName": "Customer Transaction Portal",
+      "serverId": "mcp-1",
+      "serverName": "Customer Transaction Portal MCP"
+    }
+  ]
+}
+```
+
+- **One row per stored endpoint, including disabled ones.** Unlike the MCP Tools list (section 8), nothing is left out: this page is where endpoints that were discovered but never enabled (section 2) or later turned off (section 11) are shown. `enabledForMcp` is `true` when the tool's status is `active`, `false` when `disabled`. Every row shows a status badge from it: **Active** (with the "Tool: name" badge) when `true`, **Not Active** when `false`. No separate status field is needed.
+- Field sources: `endpoint` = `tools_tool.path`, `method` = `http_method`, `summary`, `description`, `tag` (the first entry of `tags`, `""` when none), `suggestedToolName` = `tools_tool.name`. `id` is the tool id, the same id as in sections 8, 10 and 11, so it can be passed straight to them. `parametersCount` is the number of `tools_toolparameter` rows (the page shows only the count, not the parameters).
+- `applicationId`, `applicationName`, `serverId` and `serverName` come from the tool's project (same ids as section 3). "Inspect MCP Tool" opens the application detail popup, which is loaded with `serverId` (section 4).
+- **The client works out the rest from this list:**
+  - Stat cards: "Total Discovered Endpoints" is `endpoints.length` (same number as `apiDiscovery` in section 7), "Transformed to MCP Tools" is the rows with `enabledForMcp: true`, and "Registered Enterprise Apps" is the number of distinct `applicationId` values.
+  - The application dropdown is the distinct `applicationId` / `applicationName` pairs.
+  - Search (endpoint, summary, tool name, application name), the application and method filters, and "MCP Enabled Only" all run in memory. No pagination or server-side filtering for now; add `?applicationId=&method=&search=` later if the list grows large.
+- Sorted by `applicationName`, then `endpoint`, then `method`, so the order is stable between calls.
+- **Enabling / disabling an endpoint** is not part of this call: use `PATCH /api/mcp-tools/{id}` with `status` (section 11), passing the row's `id`. The page has no toggle for it yet; when it gets one, update the row from the PATCH response `tool.status`, and refresh the section 7 counts.
+- On `/demo` this endpoint is never called; the page uses the static data.
+
+---
+
 # Dashboard page
 
-## 12. Get Dashboard Summary
+## 13. Get Dashboard Summary
 
 Feeds everything on the Dashboard that is hard-coded today: the five KPI cards, the "Apps ➔ Servers / N MCP Tools" line in the architecture diagram, the Knowledge Hub branch text, and the "Recent Platform Activity & Governance" list. One call on page load.
 
@@ -797,4 +858,5 @@ Feeds everything on the Dashboard that is hard-coded today: the five KPI cards, 
 | 9 | POST | `/api/mcp-tools/{id}/execute` | MCP Tools page: Run Test in the execution sandbox popup |
 | 10 | GET | `/api/mcp-tools/{id}` | MCP Tools page: Configure Tool popup (samples, AI guidance, inputs, description, permission) |
 | 11 | PATCH | `/api/mcp-tools/{id}` | MCP Tools page: Save Configuration (also "Save as Sample" from the Test Tool popup); API Discovery: enable / disable a tool |
-| 12 | GET | `/api/dashboard` | Dashboard: KPI cards, knowledge line, recent activity |
+| 12 | GET | `/api/api-discovery` | API Discovery page: all discovered endpoints (enabled and not), stat cards, filters |
+| 13 | GET | `/api/dashboard` | Dashboard: KPI cards, knowledge line, recent activity |
