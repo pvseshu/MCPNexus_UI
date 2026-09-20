@@ -21,7 +21,8 @@ import { McpTool, SampleExample } from '../types';
 interface McpToolConfigModalProps {
   tool: McpTool | null;
   onClose: () => void;
-  onSaveTool: (updatedTool: McpTool) => void;
+  // May reject; the popup then stays open and shows the message.
+  onSaveTool: (updatedTool: McpTool) => void | Promise<void>;
   onLaunchTester: (tool: McpTool) => void;
 }
 
@@ -42,6 +43,8 @@ export const McpToolConfigModal: React.FC<McpToolConfigModalProps> = ({
   const [sampleInputs, setSampleInputs] = useState<SampleExample[]>(tool.sampleInputs);
   const [sampleOutputs, setSampleOutputs] = useState<SampleExample[]>(tool.sampleOutputs);
   const [requiredPermission, setRequiredPermission] = useState(tool.requiredPermission);
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   // New sample input draft state
   const [showAddInputModal, setShowAddInputModal] = useState(false);
@@ -100,7 +103,9 @@ export const McpToolConfigModal: React.FC<McpToolConfigModalProps> = ({
     setSampleOutputs(sampleOutputs.filter((s) => s.id !== id));
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
+    setSaveError(null);
+    setIsSaving(true);
     const updated: McpTool = {
       ...tool,
       description,
@@ -112,8 +117,14 @@ export const McpToolConfigModal: React.FC<McpToolConfigModalProps> = ({
       requiredPermission,
       aiReadinessScore: Math.min(100, 75 + sampleInputs.length * 5 + sampleOutputs.length * 3),
     };
-    onSaveTool(updated);
-    onClose();
+    try {
+      // The parent closes the popup once the save has gone through.
+      await onSaveTool(updated);
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : 'Saving the tool configuration failed.');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   return (
@@ -501,6 +512,11 @@ export const McpToolConfigModal: React.FC<McpToolConfigModalProps> = ({
           </div>
 
           <div className="flex items-center gap-3">
+            {saveError && (
+              <span className="text-xs text-red-600 max-w-sm truncate" title={saveError}>
+                {saveError}
+              </span>
+            )}
             <button
               onClick={onClose}
               className="px-4 py-2 rounded-lg border border-slate-300 hover:bg-slate-100 text-slate-700 text-xs font-semibold cursor-pointer"
@@ -509,9 +525,10 @@ export const McpToolConfigModal: React.FC<McpToolConfigModalProps> = ({
             </button>
             <button
               onClick={handleSave}
-              className="px-5 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shadow-xs cursor-pointer"
+              disabled={isSaving}
+              className="px-5 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 disabled:cursor-not-allowed text-white text-xs font-bold shadow-xs cursor-pointer"
             >
-              Save Configuration
+              {isSaving ? 'Saving...' : 'Save Configuration'}
             </button>
           </div>
         </div>

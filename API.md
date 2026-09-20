@@ -543,16 +543,17 @@ Feeds the tool card grid on the MCP Tools page, the header counts ("N Governed C
 ```
 
 - Field sources: `name`, `displayName`, `description`, `httpMethod`, `requiredPermission`, `status` come from `tools_tool` (`sourceEndpoint` = `tools_tool.path`). `serverId` / `serverName` / `applicationId` / `applicationName` come from the tool's project (same ids as section 3).
-- `status`: `Active` | `Needs Configuration` | `Disabled`. The card shows the "Test Tool" button only for `Active`. A tool with `Needs Configuration` still appears in the list.
+- `status`: `Active` | `Needs Configuration`. Only enabled tools are in this list (see the last-but-two note below), so `Disabled` is never returned here. The card shows the "Test Tool" button only for `Active`. A tool with `Needs Configuration` still appears in the list.
 - Search (name, description, endpoint, server name) and the server / status filters run on the client over this list. No pagination or server-side filtering for now, apart from the optional `serverId`.
-- `sampleInputsCount` / `sampleOutputsCount`, `aiReadinessScore`, `lastUsed` and `callCount` are not stored yet (section 2 saves no sample payloads or usage data). Until they exist the backend may return `0` / `null`, and the client shows "0 Configured" and "Used: Never (0 calls)". `lastUsed` is an ISO timestamp or `null`.
-- **Not in this response:** `whenToUse`, `whenNotToUse`, `callSequence`, `inputs`, `outputSchemaDescription` and the sample payloads. Only **Configure Tool** and **Test Tool** need them, so they belong in a separate `GET /api/mcp-tools/{id}` (and a save endpoint), to be specified when those popups get real data.
+- `sampleInputsCount` / `sampleOutputsCount` are the lengths of the sample lists saved through section 11 (`0` until someone adds samples). `aiReadinessScore` and `isAiReady` are calculated from them by the same rules as section 10. `lastUsed` and `callCount` are not stored yet (no usage data), so the backend may return `null` / `0`, and the client shows "Used: Never (0 calls)". `lastUsed` is an ISO timestamp or `null`.
+- **Not in this response:** `whenToUse`, `whenNotToUse`, `callSequence`, `inputs`, `outputSchemaDescription` and the sample payloads. Only **Configure Tool** and **Test Tool** need them, so they come from `GET /api/mcp-tools/{id}` (section 10), and **Save Configuration** goes to section 11.
 - `mcpTools` in the section 7 counts is the length of this list across all servers.
+- **Only enabled tools are returned** (`tools_tool.status = 'active'`, shown as `Active` or `Needs Configuration`). A `disabled` row is either an endpoint that was discovered but never enabled (section 2) or a tool someone turned off (section 11). Both appear only on the API Discovery page, so this list is not flooded with them. A tool disabled through section 11 therefore disappears from this page, and is turned back on from API Discovery with the same section 11 call.
 - On `/demo` this endpoint is never called; the tools come from the static data.
 
 ## 9. Run MCP Tool Test
 
-Used by the **Run Test** button in the "Interactive MCP Tool Execution Sandbox" popup (opened by "Test Tool" on a tool card). It calls the tool's real backend API once with the JSON typed in the left panel and returns the response for the right panel. Nothing is saved; "Save as Sample Input / Output" is a separate action (not covered here).
+Used by the **Run Test** button in the "Interactive MCP Tool Execution Sandbox" popup (opened by "Test Tool" on a tool card). It calls the tool's real backend API once with the JSON typed in the left panel and returns the response for the right panel. Nothing is saved by this call; "Save as Sample Input / Output" is a separate action that goes through section 11.
 
 **POST** `/api/mcp-tools/{id}/execute`
 
@@ -607,11 +608,141 @@ Used by the **Run Test** button in the "Interactive MCP Tool Execution Sandbox" 
 - The client should set a timeout a little above the server's 30s upstream limit, and keep the Run Test button in its "Executing Tool..." state until the response arrives.
 - On `/demo` this endpoint is never called; the popup keeps returning its canned response.
 
+## 10. Get MCP Tool Detail
+
+Used when **Configure Tool** is clicked on a tool card. Returns everything the "Configure Tool" popup shows in one call, so the list (section 8) stays light. Also the source for the sample inputs / outputs the **Test Tool** popup offers.
+
+| Popup part | Filled from |
+|---|---|
+| Header (name, status, server, original API, AI Readiness %) | `tool` |
+| **Multiple Sample Inputs (N)** tab | `sampleInputs` |
+| **Multiple Sample Outputs (N)** tab | `sampleOutputs` |
+| **AI Usage Guidance** tab (when to use / not use, call sequence) | `whenToUse`, `whenNotToUse`, `callSequence` |
+| **Input Schema (N)** tab (read-only table) | `inputs` |
+| **Description & Security** tab | `description`, `requiredPermission` |
+| Save Configuration | section 11 |
+
+**GET** `/api/mcp-tools/{id}`
+
+**Tables touched:** read-only: `tools_tool` (all tool fields, the three guidance columns and the two sample columns), `tools_toolparameter` (`inputs`), `projects_project` (`id` and `name`, for the server / application fields).
+
+**Output**
+```json
+{
+  "tool": {
+    "id": "tool-1",
+    "name": "getCustomerTransactions",
+    "displayName": "Get Customer Transactions",
+    "sourceEndpoint": "/customers/{customerId}/transactions",
+    "httpMethod": "GET",
+    "serverId": "mcp-1",
+    "serverName": "Customer Transaction Portal MCP",
+    "applicationId": "1",
+    "applicationName": "Customer Transaction Portal",
+    "status": "Active",
+    "isAiReady": true,
+    "aiReadinessScore": 89,
+    "description": "Fetches chronological transaction records for a customer with optional date range filters.",
+    "requiredPermission": "MCP_GETCUSTOMERTRANSACTIONS",
+    "whenToUse": "Use this tool when the user asks for recent or historical transactions for an identified customer.",
+    "whenNotToUse": "Do not use this tool for customer profile information or access-management questions.",
+    "callSequence": "Call getCustomer first. Take customerId from its response and pass it here.",
+    "outputSchemaDescription": "Transactions for the customer, newest first.",
+    "inputs": [
+      { "name": "customerId", "location": "path", "type": "string", "required": true, "description": "Customer ID", "exampleValue": "C12345" },
+      { "name": "fromDate", "location": "query", "type": "string", "required": false, "description": "Start date (YYYY-MM-DD)", "exampleValue": "2026-06-01" }
+    ],
+    "sampleInputs": [
+      {
+        "id": "si-1",
+        "name": "Last two weeks",
+        "description": "Query transactions for the first two weeks of August",
+        "type": "success",
+        "payload": { "customerId": "C12345", "fromDate": "2026-08-01", "toDate": "2026-08-14" }
+      }
+    ],
+    "sampleOutputs": [
+      {
+        "id": "so-1",
+        "name": "Transactions found",
+        "description": "Normal response with results",
+        "type": "success",
+        "payload": { "customerId": "C12345", "transactions": [{ "transactionId": "TX1001", "amount": 125.5, "status": "COMPLETED" }] }
+      },
+      {
+        "id": "so-2",
+        "name": "No results",
+        "description": "Empty response when no records match the filter",
+        "type": "empty",
+        "payload": { "customerId": "C12345", "transactions": [] }
+      }
+    ]
+  }
+}
+```
+
+- Field sources: `description`, `requiredPermission`, `status`, `displayName`, `httpMethod` and `sourceEndpoint` (= `path`) come from `tools_tool` as in section 8. `inputs` are the tool's `tools_toolparameter` rows, in the same shape as `parameters` in section 1 (`exampleValue` is the parameter's `default_value`, `""` when there is none). `outputSchemaDescription` is `tools_tool.response_schema.description` (`""` when there is none).
+- **New columns on `tools_tool`** (migration `tools/0003_tool_ai_guidance_and_samples`) for what the popup edits and the backend did not store before: `when_to_use`, `when_not_to_use`, `call_sequence` (text, blank by default), and `sample_inputs`, `sample_outputs` (JSON arrays, `[]` by default). Samples are kept as JSON on the tool, not as rows, because they are always read and replaced as a whole list.
+- `sampleInputs[].type` is always `success`. `sampleOutputs[].type`: `success` | `empty` | `validation_error` | `auth_error` | `business_error`. `payload` is a JSON object. `id` is assigned by the server and is only stable within one tool.
+- `aiReadinessScore` (0-100) is calculated by the server on read, not stored: `min(100, 75 + 5 × number of sample inputs + 3 × number of sample outputs)`. `isAiReady` is `true` when the tool has a `description`, `whenToUse` and `whenNotToUse`. Section 8 uses the same rules.
+- `404` with `{ "error": "MCP tool not found." }` for an unknown id. A disabled tool is still readable by id (`status: "Disabled"`), even though it is not in the section 8 list.
+- On `/demo` this endpoint is never called; the popup opens with the tool's static data.
+
+## 11. Update MCP Tool Configuration
+
+The **Save Configuration** button of the "Configure Tool" popup, and also the way to **enable or disable** a tool (the API Discovery page uses it to turn a discovered endpoint into an MCP tool, or to turn one off). One partial-update endpoint for every field, so it needs no separate endpoints for samples or for enabling. Send only the fields being changed; omitted fields are left as they are.
+
+**PATCH** `/api/mcp-tools/{id}`
+
+**Tables touched:** `tools_tool` only. Columns written: `status`, `description`, `required_permission`, `when_to_use`, `when_not_to_use`, `call_sequence`, `sample_inputs`, `sample_outputs` (the last five are new, see section 10). Nothing in `tools_toolparameter` or `projects_project` changes. If `description`, `whenToUse` or `whenNotToUse` changed, the tool's vector in Qdrant (`mcp_tools`, point id = `tools_tool.id`) is re-embedded; disabled tools are not indexed, so they are skipped. Changing `status` also updates the index (see "Enable / disable" below).
+
+**Input** (any subset)
+```json
+{
+  "description": "Fetches chronological transaction records for a customer with optional date range filters.",
+  "requiredPermission": "MCP_GETCUSTOMERTRANSACTIONS",
+  "status": "Active",
+  "whenToUse": "Use this tool when the user asks for recent or historical transactions for an identified customer.",
+  "whenNotToUse": "Do not use this tool for customer profile information or access-management questions.",
+  "callSequence": "Call getCustomer first. Take customerId from its response and pass it here.",
+  "sampleInputs": [
+    { "id": "si-1", "name": "Last two weeks", "description": "Query transactions for the first two weeks of August", "payload": { "customerId": "C12345", "fromDate": "2026-08-01" } },
+    { "name": "Single day", "description": "One day only", "payload": { "customerId": "C12345", "fromDate": "2026-08-05", "toDate": "2026-08-05" } }
+  ],
+  "sampleOutputs": [
+    { "id": "so-1", "name": "Transactions found", "description": "Normal response with results", "type": "success", "payload": { "customerId": "C12345", "transactions": [] } }
+  ]
+}
+```
+
+| Field | UI action |
+|---|---|
+| `status` | Enable / disable a tool: the API Discovery page's enable toggle (send `Active` or `Disabled`). Not shown in the Configure Tool popup. |
+| `description`, `requiredPermission` | "Description & Security" tab |
+| `whenToUse`, `whenNotToUse`, `callSequence` | "AI Usage Guidance" tab |
+| `sampleInputs` | "+ Add Sample Input" and the delete icon on the Sample Inputs tab. Also "Save as Sample Input" in the Test Tool popup. |
+| `sampleOutputs` | "+ Add Sample Output" and the delete icon on the Sample Outputs tab. Also "Save as Sample Output" in the Test Tool popup. |
+
+**Output:** `200` with the updated `{ "tool": {...} }` in the same shape as section 10 (including the recalculated `aiReadinessScore`), so the client can replace its copy of the tool, both in the popup and in the card list.
+
+- **Samples are replaced as a whole list.** Send the complete `sampleInputs` / `sampleOutputs` array that should exist after the save; a sample left out is deleted, and `[]` clears the list. Existing samples keep their `id`; a new sample is sent **without** an `id` and gets one in the response. "Save as Sample ..." from the Test Tool popup does the same: take the tool's current list (section 10), add the new item and send the full list.
+- Validation: `description` cannot be blank (the popup marks it required). `requiredPermission` may be blank, but then the governance layer has nothing to check, so the UI should warn. `whenToUse` / `whenNotToUse` / `callSequence` may be blank. Each sample needs a `name` and a `payload` that is a JSON object; `description` is optional; `type` must be one of the values in section 10 (a missing input type is stored as `success`, a missing output type as `success`).
+- **Enable / disable:** `status` accepts only `Active` or `Disabled` (stored as `active` / `disabled`). `Needs Configuration` cannot be sent: it is not a stored status, only how section 8 shows an enabled tool that is not fully configured. Sending the current value again is safe. The response `status` is the same as in section 10, so an enabled tool may come back as `Needs Configuration`.
+  - **Disabled** removes the tool from the MCP Tools list (section 8) and from the section 7 / section 12 tool counts, its vector is removed from Qdrant, and Run Test (section 9) answers `409`. Its saved configuration (samples, guidance, description) is kept, so nothing is lost when it is enabled again.
+  - **Active** puts it back in the list and counts, and it is embedded into Qdrant again (best effort, same as section 2).
+  - The PATCH still returns `200` with the tool after it is disabled, even though the list no longer contains it. The client should drop it from the MCP Tools list, and refresh the section 7 counts.
+  - A tool can be enabled even if its MCP server is `Disabled` / `Maintenance`; it just cannot be executed until the server is active again (section 9 `409`).
+- **Not accepted here:** `name`, `displayName`, `sourceEndpoint`, `httpMethod` and `serverId`. The API mapping is fixed when the server is generated (section 2). Sending any of them returns `400`. A `status` value other than `Active` / `Disabled` also returns `400`.
+- Changing `description`, `whenToUse` or `whenNotToUse` also re-embeds the tool text into the vector DB (best effort, same as section 2; the embedded tool text also includes `whenToUse` / `whenNotToUse` from now on), otherwise search keeps using the old text.
+- Errors: `404` with `{ "error": "MCP tool not found." }`; `400` with `{ "error": "..." }` or DRF field errors (same shapes as sections 1 and 2), e.g. `{ "sampleInputs": ["Sample 2: payload must be a JSON object."] }`.
+- **The popup already checks that the JSON payload is valid** before adding a sample, so the server error is only a guard.
+- On `/demo` this endpoint is never called; the popup keeps its changes in local state only.
+
 ---
 
 # Dashboard page
 
-## 10. Get Dashboard Summary
+## 12. Get Dashboard Summary
 
 Feeds everything on the Dashboard that is hard-coded today: the five KPI cards, the "Apps ➔ Servers / N MCP Tools" line in the architecture diagram, the Knowledge Hub branch text, and the "Recent Platform Activity & Governance" list. One call on page load.
 
@@ -664,4 +795,6 @@ Feeds everything on the Dashboard that is hard-coded today: the five KPI cards, 
 | 7 | GET | `/api/navigation/counts` | Side menu badges |
 | 8 | GET | `/api/mcp-tools` | MCP Tools page: tool cards |
 | 9 | POST | `/api/mcp-tools/{id}/execute` | MCP Tools page: Run Test in the execution sandbox popup |
-| 10 | GET | `/api/dashboard` | Dashboard: KPI cards, knowledge line, recent activity |
+| 10 | GET | `/api/mcp-tools/{id}` | MCP Tools page: Configure Tool popup (samples, AI guidance, inputs, description, permission) |
+| 11 | PATCH | `/api/mcp-tools/{id}` | MCP Tools page: Save Configuration (also "Save as Sample" from the Test Tool popup); API Discovery: enable / disable a tool |
+| 12 | GET | `/api/dashboard` | Dashboard: KPI cards, knowledge line, recent activity |

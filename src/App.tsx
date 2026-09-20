@@ -4,6 +4,7 @@ import { loadAppData } from './data/dataProvider';
 import { isDemoMode } from './utils/demoMode';
 import { fetchNavigationCounts, NavigationCounts } from './api/navigation';
 import { fetchDashboardSummary, DashboardSummary } from './api/dashboard';
+import { fetchMcpToolDetail, updateMcpTool, toApiSamples } from './api/mcpTools';
 import { fetchMcpServerDetail, setCatalogVisibility, updateMcpServer, McpServerPatch } from './api/mcpServers';
 import {
   NavSection,
@@ -318,9 +319,61 @@ export default function App() {
     );
   };
 
-  // Handlers for Tool Configuration updates
-  const handleSaveToolConfig = (updatedTool: McpTool) => {
-    setMcpTools((prev) => prev.map((t) => (t.id === updatedTool.id ? updatedTool : t)));
+  // MCP tool popups. The list (GET /api/mcp-tools) has no samples, guidance or inputs, so on
+  // the live app the full tool is loaded from GET /api/mcp-tools/{id} before a popup opens.
+  // On /demo the static tool already has everything and no call is made.
+  const loadToolDetail = async (tool: McpTool): Promise<McpTool | null> => {
+    if (isDemoMode()) return tool;
+    try {
+      // lastUsed / callCount are not part of the detail, keep the list values.
+      return { ...tool, ...(await fetchMcpToolDetail(tool.id)) };
+    } catch (err) {
+      showGlobalToast('Could not load tool', err instanceof Error ? err.message : `Could not load ${tool.name}.`);
+      return null;
+    }
+  };
+
+  const openConfigureTool = async (tool: McpTool) => {
+    const full = await loadToolDetail(tool);
+    if (full) setConfiguringTool(full);
+  };
+
+  const openToolTester = async (tool: McpTool) => {
+    const full = await loadToolDetail(tool);
+    if (full) setTestingTool(full);
+  };
+
+  // Puts a tool returned by PATCH /api/mcp-tools/{id} into the list and the open popups.
+  // A disabled tool is no longer part of the MCP Tools list, so it is dropped from it.
+  const applySavedTool = (saved: McpTool) => {
+    setMcpTools((prev) =>
+      saved.status === 'Disabled'
+        ? prev.filter((t) => t.id !== saved.id)
+        : prev.map((t) => (t.id === saved.id ? { ...t, ...saved, lastUsed: t.lastUsed, callCount: t.callCount } : t))
+    );
+    setTestingTool((prev) => (prev && prev.id === saved.id ? { ...prev, ...saved } : prev));
+    if (saved.status === 'Disabled') refreshNavCounts();
+  };
+
+  // Handlers for Tool Configuration updates. Throws on failure so the popup can stay open
+  // and show the message.
+  const handleSaveToolConfig = async (updatedTool: McpTool) => {
+    if (isDemoMode()) {
+      setMcpTools((prev) => prev.map((t) => (t.id === updatedTool.id ? updatedTool : t)));
+    } else {
+      applySavedTool({
+        ...updatedTool,
+        ...(await updateMcpTool(updatedTool.id, {
+          description: updatedTool.description,
+          requiredPermission: updatedTool.requiredPermission,
+          whenToUse: updatedTool.whenToUse,
+          whenNotToUse: updatedTool.whenNotToUse,
+          callSequence: updatedTool.callSequence ?? '',
+          sampleInputs: toApiSamples(updatedTool.sampleInputs),
+          sampleOutputs: toApiSamples(updatedTool.sampleOutputs),
+        })),
+      });
+    }
     setConfiguringTool(null);
 
     logAuditEvent(
@@ -330,20 +383,39 @@ export default function App() {
     );
   };
 
-  // Handlers for Tool Tester saving samples
-  const handleSaveSampleInputFromTester = (toolId: string, sample: SampleExample) => {
-    setMcpTools((prev) =>
-      prev.map((t) => (t.id === toolId ? { ...t, sampleInputs: [...t.sampleInputs, sample] } : t))
+  // Handlers for Tool Tester saving samples. The API replaces a whole sample list, so the
+  // new sample is appended to the tool's current list and the full list is sent.
+  const saveSampleFromTester = async (
+    toolId: string,
+    kind: 'sampleInputs' | 'sampleOutputs',
+    sample: SampleExample
+  ) => {
+    const base = testingTool?.id === toolId ? testingTool : mcpTools.find((t) => t.id === toolId);
+    if (!base) return;
+    const list = [...base[kind], sample];
+
+    if (isDemoMode()) {
+      setMcpTools((prev) => prev.map((t) => (t.id === toolId ? { ...t, [kind]: list } : t)));
+    } else {
+      try {
+        applySavedTool({ ...base, ...(await updateMcpTool(toolId, { [kind]: toApiSamples(list) })) });
+      } catch (err) {
+        showGlobalToast('Could not save sample', err instanceof Error ? err.message : 'Saving the sample failed.');
+        return;
+      }
+    }
+    logAuditEvent(
+      kind === 'sampleInputs' ? 'ADD_SAMPLE_INPUT' : 'ADD_SAMPLE_OUTPUT',
+      toolId,
+      `Saved ${kind === 'sampleInputs' ? 'input' : 'output'} sample "${sample.name}" from live tester.`
     );
-    logAuditEvent('ADD_SAMPLE_INPUT', toolId, `Saved input sample "${sample.name}" from live tester.`);
   };
 
-  const handleSaveSampleOutputFromTester = (toolId: string, sample: SampleExample) => {
-    setMcpTools((prev) =>
-      prev.map((t) => (t.id === toolId ? { ...t, sampleOutputs: [...t.sampleOutputs, sample] } : t))
-    );
-    logAuditEvent('ADD_SAMPLE_OUTPUT', toolId, `Saved output sample "${sample.name}" from live tester.`);
-  };
+  const handleSaveSampleInputFromTester = (toolId: string, sample: SampleExample) =>
+    saveSampleFromTester(toolId, 'sampleInputs', sample);
+
+  const handleSaveSampleOutputFromTester = (toolId: string, sample: SampleExample) =>
+    saveSampleFromTester(toolId, 'sampleOutputs', sample);
 
   // Handlers for Access Requests
   const handleApproveRequest = (id: string) => {
@@ -513,8 +585,8 @@ export default function App() {
             <McpToolsView
               tools={mcpTools}
               initialServerFilter={toolsServerFilter}
-              onConfigureTool={(tool) => setConfiguringTool(tool)}
-              onLaunchTester={(tool) => setTestingTool(tool)}
+              onConfigureTool={openConfigureTool}
+              onLaunchTester={openToolTester}
             />
           )}
 
@@ -614,7 +686,7 @@ export default function App() {
           onConfigureTool={(toolName) => {
             setSelectedAppForDetail(null);
             const tool = mcpTools.find((t) => t.name === toolName);
-            if (tool) setConfiguringTool(tool);
+            if (tool) openConfigureTool(tool);
           }}
           onUpdateApplication={handleUpdateApplication}
           onToggleActive={handleToggleAppActive}

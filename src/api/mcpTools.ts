@@ -1,4 +1,4 @@
-import { McpTool } from '../types';
+import { McpTool, SampleExample } from '../types';
 import { apiUrl } from '../utils/apiConfig';
 
 // Matches API.md — "8. List MCP Tools"
@@ -82,6 +82,101 @@ export async function executeMcpTool(toolId: string, input: Record<string, unkno
   }
 
   return res.json();
+}
+
+// Matches API.md — "10. Get MCP Tool Detail" and "11. Update MCP Tool Configuration"
+// Both return { tool }. The detail has no usage stats, so lastUsed / callCount are
+// left out here and the caller keeps the values it already has from the list.
+type McpToolDetail = Omit<McpTool, 'lastUsed' | 'callCount' | 'sampleInputsCount' | 'sampleOutputsCount'> & {
+  callSequence?: string | null;
+};
+
+export type McpToolDetailData = Omit<McpTool, 'lastUsed' | 'callCount'>;
+
+function mapDetail(tool: McpToolDetail): McpToolDetailData {
+  const sampleInputs = tool.sampleInputs ?? [];
+  const sampleOutputs = tool.sampleOutputs ?? [];
+  return {
+    ...tool,
+    whenToUse: tool.whenToUse ?? '',
+    whenNotToUse: tool.whenNotToUse ?? '',
+    callSequence: tool.callSequence ?? '',
+    outputSchemaDescription: tool.outputSchemaDescription ?? '',
+    inputs: tool.inputs ?? [],
+    sampleInputs,
+    sampleOutputs,
+    sampleInputsCount: sampleInputs.length,
+    sampleOutputsCount: sampleOutputs.length,
+    aiReadinessScore: tool.aiReadinessScore ?? 0,
+    isAiReady: tool.isAiReady ?? false,
+  };
+}
+
+// Plain { error } / { detail } / { message } first, then DRF field errors such as
+// { "sampleInputs": ["Sample 2: payload must be a JSON object."] }.
+async function errorMessage(res: Response, action: string): Promise<string> {
+  const body = await res.json().catch(() => null);
+  const direct = body?.error || body?.detail || body?.message;
+  if (typeof direct === 'string' && direct) return direct;
+  if (body && typeof body === 'object') {
+    for (const [field, value] of Object.entries(body)) {
+      const text = Array.isArray(value) ? value.filter((v) => typeof v === 'string').join(' ') : value;
+      if (typeof text === 'string' && text) return `${field}: ${text}`;
+    }
+  }
+  return `${action} failed (${res.status} ${res.statusText})`;
+}
+
+export async function fetchMcpToolDetail(toolId: string): Promise<McpToolDetailData> {
+  const url = apiUrl(`/api/mcp-tools/${encodeURIComponent(toolId)}`);
+  let res: Response;
+  try {
+    res = await fetch(url);
+  } catch {
+    throw new Error(`Could not reach the API server at ${url}. Is it running?`);
+  }
+  if (!res.ok) throw new Error(await errorMessage(res, 'Load MCP tool'));
+
+  const body: { tool: McpToolDetail } = await res.json();
+  return mapDetail(body.tool);
+}
+
+// Send only the fields being changed. Sample lists are replaced as a whole.
+export interface McpToolPatch {
+  status?: 'Active' | 'Disabled';
+  description?: string;
+  requiredPermission?: string;
+  whenToUse?: string;
+  whenNotToUse?: string;
+  callSequence?: string;
+  sampleInputs?: ApiSample[];
+  sampleOutputs?: ApiSample[];
+}
+
+type ApiSample = Omit<SampleExample, 'id'> & { id?: string };
+
+export async function updateMcpTool(toolId: string, patch: McpToolPatch): Promise<McpToolDetailData> {
+  const url = apiUrl(`/api/mcp-tools/${encodeURIComponent(toolId)}`);
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch),
+    });
+  } catch {
+    throw new Error(`Could not reach the API server at ${url}. Is it running?`);
+  }
+  if (!res.ok) throw new Error(await errorMessage(res, 'Update MCP tool'));
+
+  const body: { tool: McpToolDetail } = await res.json();
+  return mapDetail(body.tool);
+}
+
+// New samples are created on the client with a temporary id; the API wants them
+// without an id and assigns one, so drop the temporary ones before sending.
+export function toApiSamples(samples: SampleExample[]): ApiSample[] {
+  return samples.map(({ id, ...rest }) => (/^sample-(in|out)-\d+$/.test(id) ? rest : { id, ...rest }));
 }
 
 function formatLastUsed(value?: string | null): string {

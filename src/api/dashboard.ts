@@ -1,7 +1,7 @@
 import { AuditEvent } from '../types';
 import { apiUrl } from '../utils/apiConfig';
 
-// Matches API.md — "10. Get Dashboard Summary"
+// Matches API.md — "12. Get Dashboard Summary"
 // Every block and every field is optional: the backend may not have knowledge or
 // audit data yet, so anything missing is left undefined and the Dashboard falls
 // back to what it can count locally.
