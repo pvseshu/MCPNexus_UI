@@ -320,6 +320,8 @@ export interface ChatMessage {
   text: string;
   timestamp: string;
   isError?: boolean;
+  // Menu items returned by POST /api/chat/send (API_chat.md `list`), shown under the text.
+  items?: string[];
   actionsTaken?: {
     identifiedCustomer?: string;
     mcpServer?: string;

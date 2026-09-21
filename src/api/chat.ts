@@ -6,7 +6,9 @@ export const CHAT_TIMEOUT_MS = 2 * 60 * 1000;
 export const CHAT_ERROR_MESSAGE = "Sorry, I couldn't get a response. Please try again.";
 
 export interface ChatSendResponse {
-  reply: string;
+  status: 'success' | 'error';
+  message: string;
+  list: string[];
 }
 
 export async function sendChatMessage(message: string, server: McpServer): Promise<ChatSendResponse> {
@@ -33,18 +35,15 @@ export async function sendChatMessage(message: string, server: McpServer): Promi
     if (!res.ok) {
       throw new Error(`Chat send failed (${res.status} ${res.statusText})`);
     }
-    // Response shape is still evolving, so show it as-is: a `reply` string if present,
-    // otherwise the raw text (or JSON) that came back.
-    const raw = await res.text();
-    let reply = raw;
-    try {
-      const data = JSON.parse(raw);
-      reply = typeof data === 'string' ? data : typeof data?.reply === 'string' ? data.reply : JSON.stringify(data, null, 2);
-    } catch {
-      // not JSON — keep the raw text
+    const data = await res.json();
+    if (typeof data?.message !== 'string' || !data.message.trim()) {
+      throw new Error('Chat send failed (missing message)');
     }
-    if (!reply.trim()) throw new Error('Chat send failed (empty response)');
-    return { reply };
+    return {
+      status: data.status === 'error' ? 'error' : 'success',
+      message: data.message,
+      list: Array.isArray(data.list) ? data.list.map(String) : [],
+    };
   } finally {
     clearTimeout(timer);
   }

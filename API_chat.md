@@ -33,16 +33,24 @@ Called when the user presses Send. The UI shows a loading indicator until the re
 **Output**
 ```json
 {
-  "reply": "I've retrieved John Smith's recent transaction records."
+  "status": "success",
+  "message": "Here is what I found. Would you like to see the details of one of them?",
+  "list": ["name1", "name2"]
 }
 ```
 
+| Field | Type | Meaning |
+|---|---|---|
+| `status` | `"success"` \| `"error"` | `success` for every normal reply, including greetings, small talk and "I couldn't find anything, please refine your request". `error` when the AI could not produce an answer (the application's API call failed, or the AI service failed); `message` then explains what went wrong. |
+| `message` | string | Plain text shown as the AI message. When `list` is not empty it is a short generic sentence and a suggested follow-up question. |
+| `list` | string[] | Items to show as a list under the message, e.g. `["name1", "name2"]`. Always present; `[]` when the answer has no list. |
+
 **Notes**
-- `message` is required and is the text the user typed (trimmed, non-empty).
-- `mcpServer` and `application` describe the server selected in the picker. The application is identified by `publicId` (its internal `id` is not sent); `publicId` and `appCode` are only included when known.
-- For now the client displays the response directly: `reply` if it is a string, otherwise the raw response body (JSON is pretty-printed). An empty response shows the default error message.
-- `reply` is plain text shown as the AI message. The response shape is basic for now and will be extended (structured data, tools called, sources, etc.).
-- Errors: `400` with `{ "error": "<message>" }` for an invalid body. The client does not show the server error text; it always shows the default error message, styled as an error (red).
+- `message` (request) is required and is the text the user typed (trimmed, non-empty).
+- `mcpServer` and `application` describe the server selected in the picker. The application is identified by `publicId` (its internal `id` is not sent), and the backend looks the application up by it. `publicId` is required by the backend; `appCode` is only included when known.
+- The backend answers in steps: it checks that the message is about the application (otherwise it replies conversationally), finds the matching MCP tool, calls the application's API with parameters taken from the question, and has the AI turn the API response into the answer.
+- Application failures are still HTTP `200` with `status: "error"`, so the client checks `status`, not just the HTTP code.
+- Errors: `400` with `{ "error": ... }` for an invalid body or an unknown `publicId`. The client does not show the server error text; it always shows the default error message, styled as an error (red).
 
 ## Summary
 

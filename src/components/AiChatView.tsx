@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import {
   Bot,
+  Trash2,
   Cpu,
   Send,
   Sparkles,
@@ -25,6 +26,7 @@ import {
   BookOpen,
   X,
 } from 'lucide-react';
+import { fetchMcpServers } from '../api/mcpServers';
 import { sendChatMessage, CHAT_ERROR_MESSAGE } from '../api/chat';
 import { isDemoMode } from '../utils/demoMode';
 import { ChatMessage, DemoScenarioId, EnterpriseApplication, McpServer } from '../types';
@@ -33,8 +35,31 @@ interface AiChatViewProps {
   onOpenAccessRequests?: () => void;
   onOpenEmbedModal?: () => void;
   applications?: EnterpriseApplication[];
-  mcpServers?: McpServer[];
 }
+
+// Chat history outside /demo is kept per MCP server in sessionStorage so it survives page
+// navigation and refreshes (it is dropped when the browser tab is closed). Storage can be unavailable, so every access is guarded.
+const HISTORY_KEY = 'mcpnexus.chat.history';
+const SERVER_KEY = 'mcpnexus.chat.server';
+
+const readHistory = (): Record<string, ChatMessage[]> => {
+  try {
+    return JSON.parse(sessionStorage.getItem(HISTORY_KEY) ?? '{}') ?? {};
+  } catch {
+    return {};
+  }
+};
+
+const writeHistory = (serverId: string, msgs: ChatMessage[]) => {
+  try {
+    const all = readHistory();
+    if (msgs.length) all[serverId] = msgs;
+    else delete all[serverId];
+    sessionStorage.setItem(HISTORY_KEY, JSON.stringify(all));
+  } catch {
+    // ignore
+  }
+};
 
 // Minimal, dependency-free renderer for the "## heading" / "- bullet" / "**bold**"
 // markdown-lite syntax used in ApplicationAiSummaryConfig.sampleOutput strings.
@@ -101,7 +126,6 @@ export const AiChatView: React.FC<AiChatViewProps> = ({
   onOpenAccessRequests,
   onOpenEmbedModal,
   applications = [],
-  mcpServers = [],
 }) => {
   const [showAiSummaryModal, setShowAiSummaryModal] = useState(false);
   const iamApp = applications.find((a) => a.id === 'app-iam-sec');
@@ -111,13 +135,69 @@ export const AiChatView: React.FC<AiChatViewProps> = ({
   // Outside /demo the assistant is branded with the MCP Nexus logo (same icon as the nav brand).
   const BrandIcon = demo ? Bot : Cpu;
   const [selectedScenario, setSelectedScenario] = useState<DemoScenarioId>('scenario-1-success');
-  const [selectedServerId, setSelectedServerId] = useState('');
+  const [selectedServerId, setSelectedServerId] = useState(() => {
+    if (isDemoMode()) return '';
+    try {
+      return sessionStorage.getItem(SERVER_KEY) ?? '';
+    } catch {
+      return '';
+    }
+  });
+  // Outside /demo the picker is fed straight from GET /api/mcp-servers (not the app-wide list, which
+  // silently falls back to static demo fixtures when the API is down).
+  const [mcpServers, setMcpServers] = useState<McpServer[]>([]);
+  const [serversState, setServersState] = useState<'loading' | 'ready' | 'error'>(demo ? 'ready' : 'loading');
   const selectableServers = mcpServers.filter((s) => s.status === 'Active');
   const selectedServer = selectableServers.find((s) => s.id === selectedServerId);
   const [inputPrompt, setInputPrompt] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [expandedDetailsId, setExpandedDetailsId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (demo) return;
+    let cancelled = false;
+    fetchMcpServers()
+      .then((list) => {
+        if (cancelled) return;
+        setMcpServers(list);
+        setServersState('ready');
+      })
+      .catch((err) => {
+        console.warn('Could not load MCP servers for the chat picker.', err);
+        if (!cancelled) setServersState('error');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Load the saved history whenever the picked server changes, and save on every message change.
+  // The save effect only depends on `messages`, so switching servers never writes the previous
+  // server's messages under the new key.
+  const skipNextSave = useRef(false);
+
+  useEffect(() => {
+    if (demo) return;
+    skipNextSave.current = true;
+    try {
+      sessionStorage.setItem(SERVER_KEY, selectedServerId);
+    } catch {
+      // ignore
+    }
+    setMessages(selectedServerId ? readHistory()[selectedServerId] ?? [] : []);
+  }, [selectedServerId]);
+
+  useEffect(() => {
+    if (demo || !selectedServerId) return;
+    // The first run after (re)loading a server's history still holds the stale in-memory list;
+    // saving it would wipe what was just stored.
+    if (skipNextSave.current) {
+      skipNextSave.current = false;
+      return;
+    }
+    writeHistory(selectedServerId, messages);
+  }, [messages]);
 
   // Auto scroll
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -421,15 +501,18 @@ export const AiChatView: React.FC<AiChatViewProps> = ({
       // timeout shows the default error message.
       let aiText = CHAT_ERROR_MESSAGE;
       let isError = true;
+      let items: string[] = [];
       try {
-        aiText = (await sendChatMessage(userText, selectedServer)).reply;
-        isError = false;
+        const res = await sendChatMessage(userText, selectedServer);
+        aiText = res.message;
+        isError = res.status === 'error';
+        items = res.list;
       } catch {
         // keep the default error message
       }
       setMessages((prev) => [
         ...prev,
-        { id: `ai-${Date.now()}`, sender: 'ai', text: aiText, timestamp: 'Just now', isError },
+        { id: `ai-${Date.now()}`, sender: 'ai', text: aiText, timestamp: 'Just now', isError, items, ...(isError ? {} : { actionsTaken: { mcpServer: selectedServer.name } }) },
       ]);
       setIsProcessing(false);
       return;
@@ -508,10 +591,18 @@ export const AiChatView: React.FC<AiChatViewProps> = ({
           <div>
             <div className="flex items-center gap-2">
               <h2 className="text-sm font-bold text-slate-900">MCP Nexus AI</h2>
-              <span className="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 text-[10px] font-bold border border-emerald-200">
+              <span
+                className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${
+                  !demo && serversState === 'error'
+                    ? 'bg-red-50 text-red-700 border-red-200'
+                    : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                }`}
+              >
                 {demo
                   ? 'Connected to 24 MCPs + Knowledge'
-                  : `Connected to ${selectableServers.length} ${selectableServers.length === 1 ? 'MCP' : 'MCPs'} + Knowledge`}
+                  : serversState === 'error'
+                    ? 'MCP servers unavailable'
+                    : `Connected to ${selectableServers.length} ${selectableServers.length === 1 ? 'MCP' : 'MCPs'} + Knowledge`}
               </span>
             </div>
             <p className="text-[11px] text-slate-500">Autonomous Tool Orchestrator & Knowledge Assistant</p>
@@ -562,19 +653,38 @@ export const AiChatView: React.FC<AiChatViewProps> = ({
             </select>
           </div>
           ) : (
+          <>
+          {messages.length > 0 && (
+            <button
+              onClick={() => setMessages([])}
+              disabled={isProcessing}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white hover:bg-slate-100 disabled:opacity-50 text-slate-700 text-xs font-bold border border-slate-200 transition-colors cursor-pointer shadow-2xs"
+              title="Clear this chat's history"
+              id="chat-clear-btn"
+            >
+              <Trash2 className="w-3.5 h-3.5 text-slate-500" />
+              <span>Clear</span>
+            </button>
+          )}
+
           <div className="flex items-center gap-2 bg-indigo-50/70 border border-indigo-200 rounded-xl px-3 py-1.5">
             <Server className="w-4 h-4 text-indigo-600 flex-shrink-0" />
             <span className="text-xs font-bold text-indigo-950 whitespace-nowrap">MCP Server:</span>
             <select
               value={selectedServerId}
-              onChange={(e) => {
-                setSelectedServerId(e.target.value);
-                setMessages([]);
-              }}
+              onChange={(e) => setSelectedServerId(e.target.value)}
               className="bg-white border border-indigo-200 rounded-lg px-2.5 py-1 text-xs font-semibold text-indigo-900 focus:ring-2 focus:ring-indigo-500 cursor-pointer shadow-2xs max-w-56"
               id="chat-mcp-server-selector"
             >
-              <option value="">Select an MCP server…</option>
+              <option value="">
+                {serversState === 'loading'
+                  ? 'Loading MCP servers…'
+                  : serversState === 'error'
+                    ? 'Could not load MCP servers'
+                    : selectableServers.length === 0
+                      ? 'No active MCP servers'
+                      : 'Select an MCP server…'}
+              </option>
               {selectableServers.map((srv) => (
                 <option key={srv.id} value={srv.id}>
                   {srv.name}
@@ -582,6 +692,7 @@ export const AiChatView: React.FC<AiChatViewProps> = ({
               ))}
             </select>
           </div>
+          </>
           )}
         </div>
       </div>
@@ -606,12 +717,42 @@ export const AiChatView: React.FC<AiChatViewProps> = ({
                   msg.sender === 'user'
                     ? 'bg-indigo-600 text-white rounded-br-xs font-medium'
                     : msg.isError
-                      ? 'bg-red-50 text-red-800 border border-red-200 rounded-tl-xs'
+                      ? 'bg-red-50 text-red-800 border border-red-200 rounded-tl-xs flex items-start gap-2'
                       : 'bg-white text-slate-800 border border-slate-200 rounded-tl-xs'
                 }`}
               >
-                {msg.text}
+                {msg.isError && <AlertTriangle className="w-4 h-4 text-red-500 flex-shrink-0 -mt-0.5" />}
+                <span>{msg.text}</span>
               </div>
+
+              {/* Menu of items returned by the chat API, styled like the demo result cards */}
+              {msg.items && msg.items.length > 0 && (
+                <div className="bg-white border border-indigo-200 rounded-xl p-4 space-y-3 shadow-xs">
+                  <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+                    <span className="flex items-center gap-2 font-bold text-xs text-indigo-950">
+                      <Layers className="w-4 h-4 text-indigo-600" />
+                      <span>Results</span>
+                    </span>
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 font-bold border border-indigo-100">
+                      {msg.items.length} {msg.items.length === 1 ? 'item' : 'items'}
+                    </span>
+                  </div>
+
+                  <div className="space-y-2">
+                    {msg.items.map((item, i) => (
+                      <div
+                        key={i}
+                        className="p-2.5 rounded-lg bg-slate-50 border border-slate-100 hover:border-indigo-200 hover:bg-indigo-50/40 transition-colors flex items-center gap-3 text-xs"
+                      >
+                        <span className="w-6 h-6 rounded-lg bg-indigo-600 text-white text-[10px] font-bold flex items-center justify-center flex-shrink-0 shadow-xs">
+                          {i + 1}
+                        </span>
+                        <span className="font-bold text-slate-800 break-words min-w-0">{item}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {/* Expandable Execution Actions Banner */}
               {msg.actionsTaken && (
