@@ -1,0 +1,1363 @@
+# MCP Nexus — Complete Enterprise Application Design Prompt
+
+Design and build the **complete MCP Nexus enterprise SaaS application** as a cohesive, production-quality application — not as a collection of disconnected demo screens.
+
+## 1. Product Identity
+
+**Product Name:** MCP Nexus
+
+**Tagline:** Connect. Govern. Orchestrate.
+
+**Product Description:**
+
+MCP Nexus transforms existing enterprise APIs into governed MCP capabilities and enables AI agents to securely orchestrate applications, knowledge, and enterprise workflows through a common intelligent experience.
+
+The platform enables enterprises to:
+
+* Register existing enterprise applications
+* Discover APIs from Swagger/OpenAPI specifications
+* Select APIs that should become AI-accessible capabilities
+* Generate application-specific MCP servers
+* Expose selected APIs as MCP Tools
+* Govern MCP Tool access between applications
+* Orchestrate multiple MCP servers through an AI Agent
+* Search enterprise knowledge
+* Combine enterprise knowledge and live application data in one AI conversation
+* Request and approve access through conversational workflows
+* Provide a common enterprise AI chatbot
+
+The most important product concept is:
+
+**Connect existing enterprise applications to AI safely and easily.**
+
+---
+
+# 2. Overall Application Design
+
+Create a **modern, premium enterprise SaaS application** comparable in quality and polish to products such as Datadog, Atlassian, Microsoft Azure, ServiceNow, and modern enterprise AI platforms.
+
+Use a **1440 × 1024 desktop canvas** for all major screens.
+
+The application must feel like a real enterprise platform that could realistically be deployed inside a large organization.
+
+Do NOT design isolated mockups. Build a consistent application experience with:
+
+* Shared navigation
+* Shared header
+* Shared components
+* Consistent terminology
+* Consistent spacing
+* Consistent colors
+* Consistent interaction patterns
+* Consistent application states
+* Realistic enterprise data
+
+---
+
+# 3. Visual Design Language
+
+Use a **light enterprise theme**.
+
+### Background
+
+* White content areas
+* Very light gray page backgrounds
+* Very subtle blue/gray surfaces
+
+### Primary Colors
+
+* Blue for applications and APIs
+* Indigo for MCP and AI
+* Purple/cyan subtle accents for AI
+* Teal for Knowledge Hub
+
+### Status Colors
+
+* Green = successful/active
+* Amber/orange = pending/warning
+* Red = actual errors or destructive actions only
+
+### Component Style
+
+Use:
+
+* 10–14px rounded corners
+* Thin subtle borders
+* Soft shadows
+* Spacious layouts
+* Modern enterprise icons
+* Clean tables
+* Status badges
+* Expandable cards
+* Tooltips
+* Modal dialogs
+* Multi-step wizards
+* Toast notifications
+
+### Typography
+
+Use Inter or a similar modern enterprise font.
+
+### Avoid
+
+* Dark backgrounds
+* Heavy gradients
+* Excessive animation
+* Excessive colors
+* Cartoon-style UI
+* Overly rounded cards
+* Crowded dashboards
+* Decorative elements that do not communicate information
+
+The design should communicate:
+
+**Enterprise + AI + Security + Governance + Automation**
+
+---
+
+# 4. Global Application Layout
+
+Create a standard enterprise SaaS layout.
+
+## Left Sidebar
+
+Make the sidebar collapsible.
+
+At the top:
+
+**MCP Nexus**
+
+with a small AI/MCP icon.
+
+Navigation:
+
+### Overview
+
+* Dashboard
+
+### MCP Platform
+
+* Applications
+* MCP Servers
+* MCP Tools
+* API Discovery
+* MCP Catalog
+* MCP Orchestrator
+* Access Requests
+
+### AI
+
+* AI Chat
+* AI Workflows
+* Conversations
+
+### Knowledge
+
+* Knowledge Hub
+* Knowledge Search
+* Documents
+* Web Sources
+
+### Administration
+
+* Users & Access
+* Audit
+* Settings
+
+At the bottom:
+
+* User profile
+* User name
+* Organization
+* Settings
+
+The selected navigation item should have a subtle blue/indigo background and highlighted icon.
+
+---
+
+# 5. Critical Architecture Concept
+
+This relationship must be visually consistent throughout the entire application:
+
+**Application**
+↓
+**Existing APIs / Swagger**
+↓
+**Generated Application MCP Server**
+↓
+**MCP Tools**
+↓
+**MCP Orchestrator**
+↓
+**AI Agent**
+↓
+**Enterprise Chat**
+
+Knowledge Hub connects into the AI Agent as another source.
+
+IMPORTANT:
+
+Do NOT represent an Application and MCP Server as the same thing.
+
+Always clearly distinguish:
+
+**Application:** Customer Transaction Portal
+
+**MCP Server:** Customer Transaction Portal MCP
+
+**MCP Tools:**
+
+* getCustomer
+* getTransactions
+* getCustomerStatus
+* searchCustomer
+
+An MCP Server contains multiple MCP Tools.
+
+Do NOT make individual MCP Tools appear as separate MCP Servers.
+
+---
+
+# 6. Dashboard
+
+Create a rich but clean enterprise dashboard.
+
+Header:
+
+**MCP Nexus**
+
+Subtitle:
+
+**Connect enterprise applications, APIs, AI and knowledge through a governed MCP ecosystem.**
+
+Primary button:
+
+**+ Register Application**
+
+Secondary button:
+
+**+ Add Knowledge Source**
+
+## KPI Cards
+
+Show:
+
+**24 Applications**
+
+24 applications onboarded
+
+**24 MCP Servers**
+
+24 active MCP servers
+
+**186 MCP Tools**
+
+186 AI-enabled tools
+
+**12 Pending Access Requests**
+
+Requests requiring attention
+
+**1,284 Knowledge Sources**
+
+Documents, articles and web sources
+
+Use small icons and subtle accent colors.
+
+## MCP Ecosystem Visualization
+
+Create a large visual architecture card:
+
+Application
+↓
+APIs / Swagger
+↓
+Application MCP Servers
+↓
+MCP Orchestrator
+↓
+AI Agent
+↓
+Enterprise Chat
+
+Also connect:
+
+**Knowledge Hub → AI Agent**
+
+Make this visualization one of the strongest visual elements on the dashboard.
+
+## Recent Activity
+
+Show a timeline/table containing examples such as:
+
+* Application 2 requested access to Application 1 MCP
+* Application 3 MCP generated successfully
+* New API discovered
+* Knowledge source indexed
+* MCP Tool disabled by application owner
+
+Use statuses:
+
+* Active
+* Pending
+* Approved
+* Disabled
+* Error
+
+---
+
+# 7. Applications
+
+Create an enterprise application management page.
+
+Header:
+
+**Applications**
+
+Subtitle:
+
+**Register applications and manage their AI/MCP capabilities.**
+
+Primary button:
+
+**+ Register Application**
+
+Display applications in a clean enterprise table.
+
+Columns:
+
+* Application
+* Owner
+* APIs
+* MCP Server
+* MCP Tools
+* Status
+* AI Ready
+* Last Updated
+* Actions
+
+Example:
+
+**Customer Transaction Portal**
+
+Owner: Customer Team
+APIs: 32
+MCP Server: Customer Transaction Portal MCP
+MCP Tools: 24
+Status: Active
+AI Ready: Yes
+
+Actions:
+
+**View MCP**
+
+---
+
+# 8. Application Details
+
+When opening an application, clearly show the relationship between existing APIs and generated MCP Tools.
+
+Header:
+
+**Customer Transaction Portal**
+
+Show:
+
+* Application Owner
+* Application Status
+* API Count
+* MCP Server
+* MCP Status
+* MCP Tool Count
+* AI Ready
+
+Create a side-by-side relationship:
+
+### Existing APIs
+
+GET /customers/{id}
+
+GET /customers/{id}/transactions
+
+GET /customers/{id}/status
+
+### Generated MCP Tools
+
+getCustomer
+
+getTransactions
+
+getCustomerStatus
+
+Use visual arrows or connectors to communicate:
+
+**API → MCP Tool**
+
+This relationship is extremely important for the product demonstration.
+
+---
+
+# 9. Register Application Wizard
+
+Create a polished multi-step wizard.
+
+## Step 1 — Application Details
+
+Fields:
+
+* Application Name
+* Application ID
+* Description
+* Application Owner
+
+## Step 2 — API Specification
+
+Field:
+
+**Swagger / OpenAPI URL**
+
+Button:
+
+**Analyze API Specification**
+
+After analysis:
+
+**42 APIs discovered**
+
+## Step 3 — API Selection
+
+Display discovered APIs.
+
+Each API should show:
+
+* HTTP Method
+* Endpoint
+* Description
+* MCP Tool Name
+* Enable/Disable toggle
+
+Example:
+
+GET /customers/{customerId}/transactions
+
+MCP Tool:
+
+getCustomerTransactions
+
+Status:
+
+Enabled
+
+## Step 4 — MCP Configuration
+
+Allow the user to review:
+
+* Tool name
+* Description
+* Input schema
+* Sample input
+* Sample output
+* Permission requirements
+* Source API
+
+Button:
+
+**Generate MCP Server**
+
+---
+
+# 10. API Discovery
+
+Create a detailed API Discovery page.
+
+Top summary:
+
+**42 APIs discovered**
+
+**28 selected for MCP**
+
+**14 disabled**
+
+Tabs:
+
+* All APIs
+* Selected
+* Disabled
+* Needs Configuration
+
+Each API should appear as a clean expandable card.
+
+Example:
+
+**Get Customer Transactions**
+
+GET /customers/{customerId}/transactions
+
+Description:
+
+Retrieve customer transaction history.
+
+Status:
+
+MCP Enabled
+
+Expanded state:
+
+### Input Schema
+
+customerId
+startDate
+endDate
+
+### Sample Input
+
+Show formatted JSON.
+
+### Sample Output
+
+Show formatted JSON.
+
+Button:
+
+**Edit MCP Configuration**
+
+---
+
+# 11. MCP Generation Experience
+
+Create a visually impressive generation workflow.
+
+Show:
+
+Application
+
+↓
+
+Swagger / OpenAPI
+
+↓
+
+API Analysis
+
+↓
+
+Tool Generation
+
+↓
+
+MCP Server
+
+Show progress indicators.
+
+Completion state:
+
+**MCP Generated Successfully**
+
+Application:
+
+Customer Transaction Portal
+
+MCP Server:
+
+Customer Transaction Portal MCP
+
+Tools:
+
+24
+
+Status:
+
+Active
+
+Buttons:
+
+* View MCP
+* Manage Tools
+
+---
+
+# 12. MCP Servers
+
+Create a dedicated MCP Server management page.
+
+Show:
+
+* MCP Server Name
+* Application
+* Owner
+* Tool Count
+* Status
+* Applications Using It
+* Version
+* Last Updated
+
+Example:
+
+**Customer Transaction Portal MCP**
+
+Application: Customer Transaction Portal
+Owner: Customer Team
+Tools: 24
+Status: Active
+Used By: Case Management, Customer Support
+
+---
+
+# 13. MCP Server Details
+
+Create a detailed MCP Server screen.
+
+Header:
+
+**Customer Transaction Portal MCP**
+
+Status:
+
+**Active**
+
+Version:
+
+**1.4**
+
+Owner:
+
+**Customer Team**
+
+Show MCP Tools:
+
+* getCustomer
+* getCustomerTransactions
+* getCustomerStatus
+* searchCustomer
+
+For every Tool display:
+
+* Description
+* Source API
+* Permission
+* Status
+* Last Used
+
+Use clean status badges.
+
+---
+
+# 14. MCP Tools
+
+Create a dedicated page:
+
+**MCP Tools**
+
+Subtitle:
+
+**Individual AI-ready capabilities exposed by application MCP servers.**
+
+Example:
+
+**getTransactions**
+
+MCP Server:
+
+Customer Transaction Portal MCP
+
+Original API:
+
+GET /customers/{customerId}/transactions
+
+Description:
+
+Retrieve customer transaction history.
+
+Inputs:
+
+customerId
+startDate
+endDate
+
+Status:
+
+Active
+
+Use a highly visible label:
+
+**API → MCP Tool**
+
+The screen must make MCP Tools understandable even to someone unfamiliar with MCP.
+
+---
+
+# 15. MCP Catalog
+
+Create an internal enterprise capability marketplace.
+
+Header:
+
+**MCP Catalog**
+
+Subtitle:
+
+**Discover reusable capabilities across enterprise applications.**
+
+Large search field:
+
+**Search MCP capabilities...**
+
+Example search:
+
+Customer Transactions
+
+Each result:
+
+**Customer Transaction Portal MCP**
+
+Application: Customer Transaction Portal
+Owner: Customer Team
+Tools: 24
+Status: Active
+Used By: Case Management, Customer Support
+
+Button:
+
+**View Tools**
+
+Make this feel like a modern internal developer marketplace.
+
+---
+
+# 16. MCP Orchestrator
+
+Create one of the most visually impressive screens.
+
+Header:
+
+**MCP Orchestrator**
+
+Show a large interactive architecture visualization:
+
+**AI Agent**
+
+↓
+
+**MCP Orchestrator**
+
+↓
+
+* Customer Transaction Portal MCP
+* Case Management MCP
+* IAM MCP
+* Knowledge Hub
+
+Show active connections.
+
+KPIs:
+
+**Active MCP Servers: 24**
+
+**Available Tools: 186**
+
+**Active Workflows: 17**
+
+**Requests Today: 2,841**
+
+Below the visualization show recent workflows.
+
+Example:
+
+**Customer Investigation**
+
+User request:
+
+"Show John's transactions and check premium access."
+
+MCPs Used:
+
+Customer Transaction MCP
+IAM MCP
+
+Status:
+
+Completed
+
+---
+
+# 17. Access Management
+
+Create:
+
+**MCP Access Requests**
+
+This represents application-to-application MCP governance.
+
+Example:
+
+**Case Management**
+
+↓
+
+requesting access to
+
+↓
+
+**Customer Transaction Portal MCP**
+
+Requested Tool:
+
+getTransactions
+
+Reason:
+
+Required for customer investigation workflow.
+
+Status:
+
+Pending
+
+Buttons:
+
+**Approve**
+
+**Reject**
+
+Tabs:
+
+* Incoming Requests
+* My Requests
+* Application Requests
+
+Statuses:
+
+* Pending
+* Approved
+* Rejected
+
+---
+
+# 18. AI Chat
+
+Create the most polished conversational experience in the application.
+
+Header:
+
+**MCP Nexus AI**
+
+Subtitle:
+
+**Ask questions, access enterprise capabilities, and discover organizational knowledge.**
+
+Include a small:
+
+**Demo Scenarios**
+
+dropdown.
+
+Options:
+
+* Successful API Query
+* Permission Denied → Access Request
+* Multi-MCP Orchestration
+* Enterprise Knowledge Search
+* Application Not Integrated
+
+This allows a hackathon presenter to quickly switch between demo states.
+
+---
+
+# 19. Chat Scenario — Successful API Query
+
+User:
+
+**Show me John's recent transactions.**
+
+Show an expandable AI execution panel:
+
+✓ Identified customer
+✓ Customer Transaction Portal MCP
+✓ getCustomer
+✓ getTransactions
+✓ Authorization verified
+
+Then display a polished result.
+
+Example:
+
+**John Smith**
+
+Recent Transactions
+
+$125.50 — Aug 14
+$82.30 — Aug 12
+$240.00 — Aug 10
+
+Show:
+
+**Sources & Actions**
+
+Customer Transaction Portal MCP
+getCustomer
+getTransactions
+
+Technical details should be expandable.
+
+---
+
+# 20. Chat Scenario — Permission Denied
+
+User:
+
+**Show me John's transactions.**
+
+AI:
+
+**I found John's transaction information, but you don't currently have permission to view it.**
+
+Show a highlighted card:
+
+### Required Access
+
+GROUP_TRANSACTION_VIEW
+
+Reason:
+
+Transaction viewing permission is required.
+
+Buttons:
+
+**Request Access**
+
+**Cancel**
+
+After Request Access:
+
+✓ Access request submitted
+
+Request ID:
+
+AR-10245
+
+Status:
+
+Pending Approval
+
+AI response:
+
+**I've submitted the access request for GROUP_TRANSACTION_VIEW. Your request ID is AR-10245.**
+
+Show:
+
+**IAM MCP → requestAccess**
+
+This demonstrates:
+
+AI + Authorization + MCP + Automated Action.
+
+---
+
+# 21. Chat Scenario — Multi-MCP Orchestration
+
+User:
+
+**Show me John's transactions and check whether he has premium access.**
+
+While processing, show an orchestration visualization:
+
+AI Agent
+
+↓
+
+MCP Orchestrator
+
+↓
+
+Customer Transaction Portal MCP
+
+→ getCustomer
+→ getTransactions
+
+↓
+
+IAM / Premium Access MCP
+
+→ getUserAccess
+
+Then:
+
+**Analysis Complete**
+
+Final response:
+
+**John Smith has 5 recent transactions totaling $742.80. He currently has Standard access and does not have Premium access.**
+
+Show:
+
+**2 MCP Servers Used**
+
+This screen must visually demonstrate why MCP Nexus requires an orchestrator.
+
+---
+
+# 22. Chat Scenario — Enterprise Knowledge Search
+
+User:
+
+**What is the process for requesting production access?**
+
+Show:
+
+**Knowledge Hub**
+
+Searching enterprise knowledge...
+
+Then:
+
+✓ Production Access Procedure.pdf
+✓ Security Access Guidelines
+✓ Production Access FAQ
+
+Final answer:
+
+**To request production access, submit an access request through the IAM portal and obtain approval from your application owner.**
+
+Show source card:
+
+**Production Access Procedure**
+
+Type: PDF
+
+Updated: Aug 14, 2026
+
+Button:
+
+**View Source**
+
+---
+
+# 23. Chat Scenario — Application Not Integrated
+
+User:
+
+**Show me John's payroll information.**
+
+The system checks the MCP Catalog.
+
+Show a friendly informational state:
+
+### No Integrated Capability Found
+
+Then:
+
+**I couldn't find an integrated application or MCP capability that provides payroll information.**
+
+Do NOT show a red error screen.
+
+Instead show:
+
+### Available capabilities
+
+* Customer Information
+* Transactions
+* Case Management
+* Access Management
+
+This demonstrates that MCP Nexus does not hallucinate unavailable enterprise capabilities.
+
+---
+
+# 24. Combined AI Experience
+
+The most important AI concept is that one conversation can combine:
+
+**MCP Tools + Enterprise Knowledge**
+
+Example:
+
+User:
+
+**How do I request access to the transaction application, and do I already have access?**
+
+Show two execution paths:
+
+### Knowledge Search
+
+✓ Production / Transaction Access Procedure
+
+### MCP Action
+
+✓ IAM MCP — getUserAccess
+
+Then provide one combined answer.
+
+This should visually demonstrate that MCP Nexus combines:
+
+* Enterprise Knowledge
+* Live Application Data
+* MCP Tools
+* Authorization
+* AI
+
+inside one conversation.
+
+---
+
+# 25. Knowledge Hub
+
+Create a major section:
+
+**Enterprise Knowledge Hub**
+
+Header:
+
+**Knowledge Hub**
+
+Subtitle:
+
+**Search and manage enterprise knowledge from one place.**
+
+Statistics:
+
+**Knowledge Sources: 1,284**
+
+**Indexed Documents: 24,582**
+
+**Last Sync: Today**
+
+Categories:
+
+* PDF
+* Web
+* Documents
+* Articles
+
+Primary button:
+
+**+ Add Knowledge Source**
+
+---
+
+# 26. Add Knowledge Source
+
+Create a clean source-selection experience.
+
+Three large options:
+
+### Website
+
+Add URL
+
+### Document
+
+Upload PDF / Word document
+
+### Article
+
+Add enterprise article
+
+Each source should support:
+
+* Description
+* Category
+* Owner
+* Access Level
+* Tags
+
+After processing:
+
+**Indexed Successfully**
+
+---
+
+# 27. Knowledge Search
+
+Create an AI-powered search interface.
+
+Large search field:
+
+**Ask anything about enterprise knowledge...**
+
+Example:
+
+**What is the process for requesting production access?**
+
+Show:
+
+### AI Answer
+
+Provide a concise answer.
+
+Then:
+
+### Sources
+
+Production Access Procedure
+Access Management Guide
+Production Environment Documentation
+
+Each source displays:
+
+* Title
+* Source Type
+* Last Updated
+* Relevance
+
+---
+
+# 28. Global Interaction Design
+
+The application should include realistic enterprise interactions:
+
+* Search
+* Filtering
+* Sorting
+* Pagination
+* Expand/collapse
+* Tooltips
+* Modals
+* Confirmation dialogs
+* Toast notifications
+* Loading states
+* Empty states
+* Error states
+* Success states
+* Pending states
+* Disabled states
+
+Make interactions feel consistent across every screen.
+
+---
+
+# 29. Prototype Navigation
+
+All screens must be connected through the sidebar and contextual buttons.
+
+For example:
+
+Dashboard
+→ Applications
+→ Application Details
+→ API Discovery
+→ MCP Generation
+→ MCP Server
+→ MCP Tools
+→ MCP Catalog
+→ Access Requests
+→ MCP Orchestrator
+→ AI Chat
+→ Knowledge Hub
+
+Buttons such as:
+
+**View MCP**
+
+**Manage Tools**
+
+**Request Access**
+
+**View Source**
+
+must navigate to appropriate screens or open realistic dialogs.
+
+---
+
+# 30. Realistic Enterprise Data
+
+Use consistent sample data throughout the application.
+
+Primary application:
+
+**Customer Transaction Portal**
+
+Owner:
+
+**Customer Team**
+
+MCP Server:
+
+**Customer Transaction Portal MCP**
+
+Tools:
+
+* getCustomer
+* getTransactions
+* getCustomerStatus
+* searchCustomer
+
+Other MCP Servers:
+
+* IAM MCP
+* Case Management MCP
+* Premium Access MCP
+
+Example user:
+
+**John Smith**
+
+Example request:
+
+**AR-10245**
+
+Use realistic dates, timestamps, counts, API endpoints, statuses, and enterprise terminology.
+
+---
+
+# 31. Demo-First Visual Priorities
+
+The following screens are the most important and should receive the highest visual polish:
+
+1. Dashboard
+2. Application → API → MCP Server → MCP Tools
+3. MCP Catalog
+4. MCP Orchestrator
+5. Successful Chat
+6. Permission Denied → Access Request Chat
+7. Multi-MCP Chat
+8. Knowledge Search Chat
+9. Application Not Integrated Chat
+
+These screens should look like a cohesive enterprise product demo.
+
+---
+
+# 32. Final Product Personality
+
+MCP Nexus should feel:
+
+* Professional
+* Modern
+* Trustworthy
+* Intelligent
+* Secure
+* Governed
+* Clean
+* Premium
+* Enterprise-ready
+
+The visual hierarchy should make the architecture immediately understandable.
+
+A new user should quickly understand:
+
+**Applications provide APIs.**
+
+**APIs become MCP Tools through application-specific MCP Servers.**
+
+**MCP Servers are governed and orchestrated.**
+
+**AI Agents use those capabilities securely.**
+
+**Knowledge Hub provides enterprise knowledge.**
+
+**The chatbot brings everything together.**
+
+---
+
+# 33. Final Design Requirement
+
+Do not create a collection of unrelated pages.
+
+Create **one complete MCP Nexus application** with a unified information architecture, shared navigation, reusable components, consistent data, realistic workflows, and connected user journeys.
+
+The final result should look like a real enterprise SaaS product ready for a major enterprise architecture demonstration or hackathon presentation.
+
+The core visual story must always communicate:
+
+**Connect. Govern. Orchestrate.**
+
+**Application → API → MCP Server → MCP Tools → MCP Orchestrator → AI Agent → Enterprise Experience**
