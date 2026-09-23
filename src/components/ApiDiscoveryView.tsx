@@ -22,6 +22,8 @@ interface ApiDiscoveryViewProps {
   isLoading?: boolean;
   error?: string | null;
   onInspectEndpoint?: (endpoint: DiscoveredEndpoint) => void;
+  // Enable / disable the endpoint's MCP tool; rejects on failure. Not passed on /demo.
+  onToggleEndpoint?: (endpoint: DiscoveredEndpoint) => Promise<void>;
   onOpenRegisterWizard?: () => void;
   onRegisterNew?: () => void;
 }
@@ -31,9 +33,26 @@ export const ApiDiscoveryView: React.FC<ApiDiscoveryViewProps> = ({
   isLoading = false,
   error = null,
   onInspectEndpoint,
+  onToggleEndpoint,
   onOpenRegisterWizard,
   onRegisterNew,
 }) => {
+
+  const [togglingId, setTogglingId] = useState<string | null>(null);
+  const [toggleError, setToggleError] = useState<{ id: string; message: string } | null>(null);
+
+  const handleToggle = async (api: DiscoveredEndpoint) => {
+    if (!onToggleEndpoint) return;
+    setTogglingId(api.id);
+    setToggleError(null);
+    try {
+      await onToggleEndpoint(api);
+    } catch (err) {
+      setToggleError({ id: api.id, message: err instanceof Error ? err.message : 'Could not update the tool.' });
+    } finally {
+      setTogglingId(null);
+    }
+  };
 
   const handleOpenRegister = () => {
     if (onRegisterNew) onRegisterNew();
@@ -246,9 +265,32 @@ export const ApiDiscoveryView: React.FC<ApiDiscoveryViewProps> = ({
                   <span>•</span>
                   <span>Server: {api.serverName}</span>
                 </div>
+
+                {toggleError?.id === api.id && (
+                  <p className="text-xs text-red-600 pt-1" role="alert">
+                    {toggleError.message}
+                  </p>
+                )}
               </div>
 
               <div className="flex items-center gap-2 flex-shrink-0">
+                {onToggleEndpoint && (
+                  <button
+                    onClick={() => handleToggle(api)}
+                    disabled={togglingId === api.id}
+                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${
+                      api.enabledForMcp
+                        ? 'bg-white hover:bg-slate-100 text-slate-700 border-slate-200'
+                        : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border-emerald-200'
+                    }`}
+                  >
+                    <span>
+                      {togglingId === api.id
+                        ? api.enabledForMcp ? 'Disabling…' : 'Enabling…'
+                        : api.enabledForMcp ? 'Disable' : 'Enable'}
+                    </span>
+                  </button>
+                )}
                 <button
                   onClick={() => onInspectEndpoint?.(api)}
                   className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-semibold transition-colors cursor-pointer"

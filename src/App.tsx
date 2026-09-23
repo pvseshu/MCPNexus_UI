@@ -9,7 +9,7 @@ import {
   endpointsFromApplications,
   DiscoveredEndpoint,
 } from './api/apiDiscovery';
-import { fetchMcpToolDetail, updateMcpTool, toApiSamples } from './api/mcpTools';
+import { fetchMcpTools, fetchMcpToolDetail, updateMcpTool, toApiSamples } from './api/mcpTools';
 import { fetchMcpServerDetail, setCatalogVisibility, updateMcpServer, McpServerPatch } from './api/mcpServers';
 import {
   NavSection,
@@ -329,6 +329,32 @@ export default function App() {
     };
   }, [currentSection]);
 
+  // MCP Tools page Disable: PATCH /api/mcp-tools/{id} with status Disabled (API.md section 11).
+  // The tool leaves this list (applySavedTool) and shows as Not Active on API Discovery.
+  // Throws on failure so the card can show the message.
+  const handleDisableTool = async (tool: McpTool) => {
+    const saved = await updateMcpTool(tool.id, { status: 'Disabled' });
+    applySavedTool({ ...tool, ...saved });
+    setDiscoveredEndpoints((prev) => prev.map((e) => (e.id === tool.id ? { ...e, enabledForMcp: false } : e)));
+  };
+
+  // API Discovery Enable / Disable: PATCH /api/mcp-tools/{id} with `status` (API.md section 11).
+  // Throws on failure so the row can show the message.
+  const handleToggleEndpoint = async (endpoint: DiscoveredEndpoint) => {
+    const enable = !endpoint.enabledForMcp;
+    const saved = await updateMcpTool(endpoint.id, { status: enable ? 'Active' : 'Disabled' });
+    setDiscoveredEndpoints((prev) =>
+      prev.map((e) => (e.id === endpoint.id ? { ...e, enabledForMcp: saved.status !== 'Disabled' } : e))
+    );
+    if (enable) {
+      // The tool was not in the MCP Tools list while disabled, so reload it.
+      fetchMcpTools().then(setMcpTools).catch((err) => console.warn('Could not reload MCP tools.', err));
+    } else {
+      setMcpTools((prev) => prev.filter((t) => t.id !== endpoint.id));
+    }
+    refreshNavCounts();
+  };
+
   // "Inspect MCP Tool": live rows open the application detail through their server id
   // (GET /api/mcp-servers/{id}); demo rows match a static application.
   const handleInspectEndpoint = async (endpoint: DiscoveredEndpoint) => {
@@ -611,6 +637,7 @@ export default function App() {
               isLoading={discoveryLoading}
               error={discoveryError}
               onInspectEndpoint={handleInspectEndpoint}
+              onToggleEndpoint={isDemoMode() ? undefined : handleToggleEndpoint}
               onRegisterNew={() => setShowRegisterWizard(true)}
             />
           )}
@@ -752,6 +779,14 @@ export default function App() {
           tool={configuringTool}
           onClose={() => setConfiguringTool(null)}
           onSaveTool={handleSaveToolConfig}
+          onDisableTool={
+            isDemoMode()
+              ? undefined
+              : async (t) => {
+                  await handleDisableTool(t);
+                  setConfiguringTool(null);
+                }
+          }
           onLaunchTester={(tool) => {
             setConfiguringTool(null);
             setTestingTool(tool);

@@ -15,6 +15,7 @@ import {
   Layers,
   FileJson,
   Edit3,
+  AlertTriangle,
 } from 'lucide-react';
 import { McpTool, SampleExample } from '../types';
 
@@ -23,6 +24,8 @@ interface McpToolConfigModalProps {
   onClose: () => void;
   // May reject; the popup then stays open and shows the message.
   onSaveTool: (updatedTool: McpTool) => void | Promise<void>;
+  // Disables the tool and closes the popup; may reject. Not passed on /demo.
+  onDisableTool?: (tool: McpTool) => Promise<void>;
   onLaunchTester: (tool: McpTool) => void;
 }
 
@@ -30,6 +33,7 @@ export const McpToolConfigModal: React.FC<McpToolConfigModalProps> = ({
   tool,
   onClose,
   onSaveTool,
+  onDisableTool,
   onLaunchTester,
 }) => {
   if (!tool) return null;
@@ -45,6 +49,8 @@ export const McpToolConfigModal: React.FC<McpToolConfigModalProps> = ({
   const [requiredPermission, setRequiredPermission] = useState(tool.requiredPermission);
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [isDisabling, setIsDisabling] = useState(false);
+  const [showDisableConfirm, setShowDisableConfirm] = useState(false);
 
   // New sample input draft state
   const [showAddInputModal, setShowAddInputModal] = useState(false);
@@ -101,6 +107,20 @@ export const McpToolConfigModal: React.FC<McpToolConfigModalProps> = ({
 
   const handleDeleteSampleOutput = (id: string) => {
     setSampleOutputs(sampleOutputs.filter((s) => s.id !== id));
+  };
+
+  const handleDisable = async () => {
+    if (!onDisableTool) return;
+    setShowDisableConfirm(false);
+    setSaveError(null);
+    setIsDisabling(true);
+    try {
+      await onDisableTool(tool);
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : 'Disabling the tool failed.');
+    } finally {
+      setIsDisabling(false);
+    }
   };
 
   const handleSave = async () => {
@@ -517,6 +537,22 @@ export const McpToolConfigModal: React.FC<McpToolConfigModalProps> = ({
                 {saveError}
               </span>
             )}
+            {onDisableTool && (
+              <label className="flex items-center gap-2 mr-2 text-xs font-semibold text-slate-700">
+                <span>{isDisabling ? 'Disabling...' : 'Enabled'}</span>
+                <button
+                    type="button"
+                    role="switch"
+                    aria-checked={!isDisabling}
+                    aria-label="Tool enabled"
+                    onClick={() => setShowDisableConfirm(true)}
+                    disabled={isDisabling || isSaving}
+                    className={`relative inline-flex h-5 w-9 flex-shrink-0 items-center rounded-full transition-colors cursor-pointer disabled:cursor-not-allowed disabled:opacity-60 ${isDisabling ? 'bg-slate-300' : 'bg-emerald-500'}`}
+                  >
+                    <span className={`inline-block h-4 w-4 rounded-full bg-white shadow transition-transform ${isDisabling ? 'translate-x-0.5' : 'translate-x-[18px]'}`} />
+                  </button>
+              </label>
+            )}
             <button
               onClick={onClose}
               className="px-4 py-2 rounded-lg border border-slate-300 hover:bg-slate-100 text-slate-700 text-xs font-semibold cursor-pointer"
@@ -525,7 +561,7 @@ export const McpToolConfigModal: React.FC<McpToolConfigModalProps> = ({
             </button>
             <button
               onClick={handleSave}
-              disabled={isSaving}
+              disabled={isSaving || isDisabling}
               className="px-5 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 disabled:cursor-not-allowed text-white text-xs font-bold shadow-xs cursor-pointer"
             >
               {isSaving ? 'Saving...' : 'Save Configuration'}
@@ -533,6 +569,41 @@ export const McpToolConfigModal: React.FC<McpToolConfigModalProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Sub-modal: confirm disabling the tool */}
+      {showDisableConfirm && (
+        <div className="fixed inset-0 z-60 bg-slate-900/50 flex items-center justify-center p-4" id="disable-tool-confirm">
+          <div className="bg-white rounded-xl max-w-md w-full p-5 space-y-4 shadow-xl border border-slate-200">
+            <div className="flex items-start gap-3">
+              <div className="w-9 h-9 rounded-full bg-amber-100 text-amber-600 flex items-center justify-center flex-shrink-0">
+                <AlertTriangle className="w-4.5 h-4.5" />
+              </div>
+              <div className="space-y-1.5">
+                <h4 className="text-sm font-bold text-slate-900">Disable this tool?</h4>
+                <p className="text-xs text-slate-600 leading-relaxed">
+                  <span className="font-mono font-semibold text-slate-800">{tool.name}</span> will be removed from the
+                  MCP Tools list and the AI will no longer be able to use it. Unsaved changes in this popup are
+                  discarded. You can enable it again from API Discovery.
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center justify-end gap-2 pt-1">
+              <button
+                onClick={() => setShowDisableConfirm(false)}
+                className="px-4 py-2 rounded-lg border border-slate-300 hover:bg-slate-100 text-slate-700 text-xs font-semibold cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleDisable}
+                className="px-4 py-2 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold shadow-xs cursor-pointer"
+              >
+                Disable Tool
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Sub-modal: Add Sample Input */}
       {showAddInputModal && (

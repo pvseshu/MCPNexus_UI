@@ -41,6 +41,27 @@ interface AiChatViewProps {
 // navigation and refreshes (it is dropped when the browser tab is closed). Storage can be unavailable, so every access is guarded.
 const HISTORY_KEY = 'mcpnexus.chat.history';
 const SERVER_KEY = 'mcpnexus.chat.server';
+const SESSION_KEY = 'mcpnexus.chat.sessions';
+
+// Each server's chat window has its own backend sessionId (API_chat.md), kept next to its history.
+const readSessions = (): Record<string, string> => {
+  try {
+    return JSON.parse(sessionStorage.getItem(SESSION_KEY) ?? '{}') ?? {};
+  } catch {
+    return {};
+  }
+};
+
+const writeSession = (serverId: string, sessionId: string) => {
+  try {
+    const all = readSessions();
+    if (sessionId) all[serverId] = sessionId;
+    else delete all[serverId];
+    sessionStorage.setItem(SESSION_KEY, JSON.stringify(all));
+  } catch {
+    // ignore
+  }
+};
 
 const readHistory = (): Record<string, ChatMessage[]> => {
   try {
@@ -149,6 +170,7 @@ export const AiChatView: React.FC<AiChatViewProps> = ({
   const [serversState, setServersState] = useState<'loading' | 'ready' | 'error'>(demo ? 'ready' : 'loading');
   const selectableServers = mcpServers.filter((s) => s.status === 'Active');
   const selectedServer = selectableServers.find((s) => s.id === selectedServerId);
+  const [sessionId, setSessionId] = useState('');
   const [inputPrompt, setInputPrompt] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -186,6 +208,7 @@ export const AiChatView: React.FC<AiChatViewProps> = ({
       // ignore
     }
     setMessages(selectedServerId ? readHistory()[selectedServerId] ?? [] : []);
+    setSessionId(selectedServerId ? readSessions()[selectedServerId] ?? '' : '');
   }, [selectedServerId]);
 
   useEffect(() => {
@@ -497,13 +520,17 @@ export const AiChatView: React.FC<AiChatViewProps> = ({
     setIsProcessing(true);
 
     if (!demo && selectedServer) {
-      // Real chat: wait for the API (spinner shows while isProcessing); a failure or a 2-minute
+      // Real chat: wait for the API (spinner shows while isProcessing); a failure or a 10-minute
       // timeout shows the default error message.
       let aiText = CHAT_ERROR_MESSAGE;
       let isError = true;
       let items: string[] = [];
       try {
-        const res = await sendChatMessage(userText, selectedServer);
+        const res = await sendChatMessage(userText, selectedServer, sessionId);
+        if (res.sessionId) {
+          setSessionId(res.sessionId);
+          writeSession(selectedServer.id, res.sessionId);
+        }
         aiText = res.message;
         isError = res.status === 'error';
         items = res.list;
@@ -512,7 +539,7 @@ export const AiChatView: React.FC<AiChatViewProps> = ({
       }
       setMessages((prev) => [
         ...prev,
-        { id: `ai-${Date.now()}`, sender: 'ai', text: aiText, timestamp: 'Just now', isError, items, ...(isError ? {} : { actionsTaken: { mcpServer: selectedServer.name } }) },
+        { id: `ai-${Date.now()}`, sender: 'ai', text: aiText, timestamp: 'Just now', isError, items },
       ]);
       setIsProcessing(false);
       return;
@@ -656,7 +683,12 @@ export const AiChatView: React.FC<AiChatViewProps> = ({
           <>
           {messages.length > 0 && (
             <button
-              onClick={() => setMessages([])}
+              onClick={() => {
+                // A cleared chat is a new chat: drop the backend session id along with the history.
+                setMessages([]);
+                setSessionId('');
+                if (selectedServerId) writeSession(selectedServerId, '');
+              }}
               disabled={isProcessing}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white hover:bg-slate-100 disabled:opacity-50 text-slate-700 text-xs font-bold border border-slate-200 transition-colors cursor-pointer shadow-2xs"
               title="Clear this chat's history"
